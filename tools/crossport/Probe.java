@@ -40,6 +40,16 @@ import com.quantfinlib.backtest.validation.PurgedKFold;
 import com.quantfinlib.backtest.validation.SharpeValidation;
 import com.quantfinlib.backtest.portfolio.PositionSizing;
 import com.quantfinlib.indicators.Indicators;
+import com.quantfinlib.fx.FixingRisk;
+import com.quantfinlib.crb.HedgeOptimizer;
+import com.quantfinlib.crb.SkewedQuoter;
+import com.quantfinlib.alpha.PortfolioConstruction;
+import com.quantfinlib.microstructure.TradeClassifier;
+import com.quantfinlib.microstructure.Vpin;
+import com.quantfinlib.microstructure.HawkesIntensity;
+import com.quantfinlib.microstructure.EwmaCovariance;
+import com.quantfinlib.microstructure.JumpRobustVolatility;
+import com.quantfinlib.trading.AvellanedaStoikov;
 
 import java.util.List;
 import java.util.Locale;
@@ -253,5 +263,79 @@ public final class Probe {
         p("ind.rsi", Indicators.rsi(v, 14)[99]);
         p("ind.macd", Indicators.macd(v, 12, 26, 9).line()[99]);
         p("ind.boll.up", Indicators.bollinger(v, 20, 2).upper()[99]);
+
+        // ---- Section 8: fx / crb / alpha / microstructure (Phase 3) ----
+        double[] fixPrices = {100.1, 100.3, 100.2, 100.5};
+        double[] fixSizes = {10.0, 20.0, 15.0, 5.0};
+        p("fx.twap", FixingRisk.windowTwap(fixPrices));
+        p("fx.vwap", FixingRisk.windowVwap(fixPrices, fixSizes));
+        p("fx.trackerr", FixingRisk.trackingErrorStd(0.002, 5.0));
+        p("fx.partrate", FixingRisk.participationRate(50000, 400000));
+
+        double[] hedgeExposures = {1_000_000.0, -500_000.0};
+        double[][] hedgeCov = {{0.04, 0.01}, {0.01, 0.09}};
+        double[][] hedgeLoadings = {{1.0, 0.5}, {0.3, 1.0}};
+        double[] hedgeCost = {200.0, 300.0};
+        double[] hedge0 = HedgeOptimizer.hedge(hedgeExposures, hedgeCov, hedgeLoadings, hedgeCost, 0.0);
+        p("crb.hedge0.h0", hedge0[0]);
+        p("crb.hedge0.h1", hedge0[1]);
+        double[] hedgeL1 = HedgeOptimizer.hedge(hedgeExposures, hedgeCov, hedgeLoadings, hedgeCost, 400.0);
+        p("crb.hedgeL1.h0", hedgeL1[0]);
+        p("crb.hedgeL1.h1", hedgeL1[1]);
+        SkewedQuoter.Quote skq = SkewedQuoter.quote(100.0, 5.0, 300000, 1000000, 0.6);
+        p("crb.quote.bid", skq.bid());
+        p("crb.quote.ask", skq.ask());
+        p("crb.quote.skew", skq.skewBps());
+
+        double[] alphaScores = {1.2, -0.5, 0.3, 2.1, -1.8, 0.9};
+        double[] alphaW = PortfolioConstruction.zScoreWeights(alphaScores, 1.0, 0.3);
+        p("alpha.zw0", alphaW[0]);
+        p("alpha.zw3", alphaW[3]);
+
+        TradeClassifier tc = new TradeClassifier();
+        tc.onQuote(99.0, 101.0);
+        double[] tradePrices = {101.0, 100.5, 99.0, 100.0, 100.0, 102.0};
+        double leeReadySum = 0;
+        for (double tp : tradePrices) {
+            leeReadySum += tc.classify(tp);
+        }
+        p("micro.leeready.sum", leeReadySum);
+
+        Vpin vp = new Vpin(100, 3);
+        vp.onTrade(60, true);
+        vp.onTrade(40, false);
+        vp.onTrade(30, true);
+        vp.onTrade(70, false);
+        vp.onTrade(90, true);
+        vp.onTrade(10, true);
+        p("micro.vpin.value", vp.vpin());
+
+        HawkesIntensity hi = new HawkesIntensity(3.0, 0.2, 1_000_000_000L);
+        hi.onEvent(0L);
+        hi.onEvent(500_000_000L);
+        hi.onEvent(1_200_000_000L);
+        hi.onEvent(1_300_000_000L);
+        p("micro.hawkes.intensity", hi.intensity(2_000_000_000L));
+        p("micro.hawkes.burst", hi.burstScore(2_000_000_000L));
+
+        EwmaCovariance ec = new EwmaCovariance(2, 0.9);
+        ec.onReturns(new double[]{0.01, 0.02});
+        ec.onReturns(new double[]{-0.015, 0.005});
+        ec.onReturns(new double[]{0.02, -0.01});
+        ec.onReturns(new double[]{0.005, 0.015});
+        p("micro.ewmacov.cov01", ec.covariance(0, 1));
+        p("micro.ewmacov.corr01", ec.correlation(0, 1));
+
+        AvellanedaStoikov avs = new AvellanedaStoikov(0.1, 1.5);
+        p("micro.as.bid", avs.bidQuote(100.0, 500.0, 0.0004, 300.0));
+        p("micro.as.ask", avs.askQuote(100.0, 500.0, 0.0004, 300.0));
+
+        JumpRobustVolatility jrv = new JumpRobustVolatility(5_000_000_000L);
+        jrv.onReturn(0.001, 1_000_000_000L);
+        jrv.onReturn(-0.0008, 1_000_000_000L);
+        jrv.onReturn(0.0015, 1_000_000_000L);
+        jrv.onReturn(-0.002, 1_000_000_000L);
+        p("micro.jrv.vol", jrv.volPerSqrtSecond());
+        p("micro.jrv.jumpfrac", jrv.jumpFraction());
     }
 }

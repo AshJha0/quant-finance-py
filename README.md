@@ -18,7 +18,7 @@ Honesty note: this port is the *algorithms* lane. The Java (and
 upcoming C++) siblings own the low-latency story -- Python is for
 research, teaching, and cross-checking numbers, not the hot path.
 
-## Phase 1 (current): the quant core
+## What's ported (Phases 1-3)
 
 | Package | Contents |
 |---|---|
@@ -32,12 +32,19 @@ research, teaching, and cross-checking numbers, not the hot path.
 | `risk` | Four VaR flavors + ES, component VaR (Euler), Ledoit-Wolf shrinkage, EVT, stress + reverse stress, FRTB ES, P&L attribution (KS), VaR backtests, PCA, Gaussian/t copulas, concentration, counterparty PFE, settlement risk |
 | `volatility` | EWMA, GARCH/GJR/EGARCH, HAR-RV, model-free vol index, range estimators (Parkinson/GK/RS/Yang-Zhang), AIC/BIC, vol decomposition |
 | `indicators` | Batch + streaming indicator set (SMA/EMA/RSI/MACD/Bollinger/ATR/VWAP...) |
-| `backtest` | Trade analytics, performance/drawdown analytics, benchmark comparison; `validation/` purged K-fold, CSCV overfit probability, block bootstrap, deflated Sharpe, Monte Carlo trade reshuffle; `portfolio/` position sizing, optimizers (MV/risk-parity/Black-Litterman/constrained) |
+| `backtest` | Full strategy engine (Backtester, 5 strategies, cost models, execution models with the cash-conservation contract, walk-forward with warm folds, grid search) + trade/performance/drawdown analytics; `validation/` purged K-fold, CSCV overfit probability, block bootstrap, deflated Sharpe, Monte Carlo trade reshuffle; `portfolio/` position sizing, optimizers, portfolio backtester, cross-sectional momentum |
+| `fx` | Currency-pair conventions + calendars, swap points, FX swaps/NDFs, delta-quoted vol surface (premium-adjusted), tier book, LP scorecard/router |
+| `crb` | Central risk book: factor-space netting, skewed quoting, internalization, L1 hedge optimizer, auto-hedger, router, P&L ledger |
+| `alpha` | Research pipeline: context/factors/evaluator/validation/backtester/construction/report, ensemble, online learner, Fama-MacBeth, calendar anomalies |
+| `microstructure` | Almgren-Chriss, Kyle's lambda, OU, variance ratio, TCA, impact models, seasonality curves (per-bucket seeding), queue/fill models, Lee-Ready, VPIN, Hawkes, EWMA covariance, Avellaneda-Stoikov |
 
-81 modules - 419 tests, all green.
+158 modules - 607 tests, all green.
 
-Phase 2 (planned): the strategy engine, execution models and
-microstructure analytics. Phase 3: the teaching docs adapted to Python.
+**Cross-port verified**: an identical probe battery runs against Java,
+C++, and Python (138 labels) and diffs to zero mismatches -- see
+`tools/crossport/`.
+
+Remaining (Phase 4): the teaching docs adapted to Python.
 
 ## Install and test
 

@@ -44,6 +44,16 @@
 #include "quantfinlib/backtest/validation/sharpe_validation.hpp"
 #include "quantfinlib/backtest/portfolio/position_sizing.hpp"
 #include "quantfinlib/indicators/indicators.hpp"
+#include "quantfinlib/fx/fixing_risk.hpp"
+#include "quantfinlib/crb/hedge_optimizer.hpp"
+#include "quantfinlib/crb/skewed_quoter.hpp"
+#include "quantfinlib/alpha/portfolio_construction.hpp"
+#include "quantfinlib/microstructure/trade_classifier.hpp"
+#include "quantfinlib/microstructure/vpin.hpp"
+#include "quantfinlib/microstructure/hawkes_intensity.hpp"
+#include "quantfinlib/microstructure/ewma_covariance.hpp"
+#include "quantfinlib/microstructure/avellaneda_stoikov.hpp"
+#include "quantfinlib/microstructure/jump_robust_volatility.hpp"
 
 using namespace quantfinlib;
 
@@ -249,5 +259,79 @@ int main() {
     p("ind.rsi", Indicators::rsi(v, 14)[99]);
     p("ind.macd", Indicators::macd(v, 12, 26, 9).line[99]);
     p("ind.boll.up", Indicators::bollinger(v, 20, 2).upper[99]);
+
+    // ---- Section 8: fx / crb / alpha / microstructure (Phase 3) ----
+    std::vector<double> fixPrices = {100.1, 100.3, 100.2, 100.5};
+    std::vector<double> fixSizes = {10.0, 20.0, 15.0, 5.0};
+    p("fx.twap", fixing_risk::windowTwap(fixPrices));
+    p("fx.vwap", fixing_risk::windowVwap(fixPrices, fixSizes));
+    p("fx.trackerr", fixing_risk::trackingErrorStd(0.002, 5.0));
+    p("fx.partrate", fixing_risk::participationRate(50000, 400000));
+
+    std::vector<double> hedgeExposures = {1000000.0, -500000.0};
+    hedge_optimizer::Matrix hedgeCov = {{0.04, 0.01}, {0.01, 0.09}};
+    hedge_optimizer::Matrix hedgeLoadings = {{1.0, 0.5}, {0.3, 1.0}};
+    std::vector<double> hedgeCost = {200.0, 300.0};
+    std::vector<double> hedge0 = hedge_optimizer::hedge(hedgeExposures, hedgeCov, hedgeLoadings, hedgeCost, 0.0);
+    p("crb.hedge0.h0", hedge0[0]);
+    p("crb.hedge0.h1", hedge0[1]);
+    std::vector<double> hedgeL1 = hedge_optimizer::hedge(hedgeExposures, hedgeCov, hedgeLoadings, hedgeCost, 400.0);
+    p("crb.hedgeL1.h0", hedgeL1[0]);
+    p("crb.hedgeL1.h1", hedgeL1[1]);
+    skewed_quoter::Quote skq = skewed_quoter::quote(100.0, 5.0, 300000, 1000000, 0.6);
+    p("crb.quote.bid", skq.bid);
+    p("crb.quote.ask", skq.ask);
+    p("crb.quote.skew", skq.skewBps);
+
+    std::vector<double> alphaScores = {1.2, -0.5, 0.3, 2.1, -1.8, 0.9};
+    std::vector<double> alphaW = portfolio_construction::zScoreWeights(alphaScores, 1.0, 0.3);
+    p("alpha.zw0", alphaW[0]);
+    p("alpha.zw3", alphaW[3]);
+
+    TradeClassifier tc;
+    tc.onQuote(99.0, 101.0);
+    std::vector<double> tradePrices = {101.0, 100.5, 99.0, 100.0, 100.0, 102.0};
+    double leeReadySum = 0;
+    for (double tp : tradePrices) {
+        leeReadySum += tc.classify(tp);
+    }
+    p("micro.leeready.sum", leeReadySum);
+
+    Vpin vp(100, 3);
+    vp.onTrade(60, true);
+    vp.onTrade(40, false);
+    vp.onTrade(30, true);
+    vp.onTrade(70, false);
+    vp.onTrade(90, true);
+    vp.onTrade(10, true);
+    p("micro.vpin.value", vp.vpin());
+
+    HawkesIntensity hi(3.0, 0.2, 1'000'000'000LL);
+    hi.onEvent(0LL);
+    hi.onEvent(500'000'000LL);
+    hi.onEvent(1'200'000'000LL);
+    hi.onEvent(1'300'000'000LL);
+    p("micro.hawkes.intensity", hi.intensity(2'000'000'000LL));
+    p("micro.hawkes.burst", hi.burstScore(2'000'000'000LL));
+
+    EwmaCovariance ec(2, 0.9);
+    ec.onReturns({0.01, 0.02});
+    ec.onReturns({-0.015, 0.005});
+    ec.onReturns({0.02, -0.01});
+    ec.onReturns({0.005, 0.015});
+    p("micro.ewmacov.cov01", ec.covariance(0, 1));
+    p("micro.ewmacov.corr01", ec.correlation(0, 1));
+
+    AvellanedaStoikov avs(0.1, 1.5);
+    p("micro.as.bid", avs.bidQuote(100.0, 500.0, 0.0004, 300.0));
+    p("micro.as.ask", avs.askQuote(100.0, 500.0, 0.0004, 300.0));
+
+    JumpRobustVolatility jrv(5'000'000'000LL);
+    jrv.onReturn(0.001, 1'000'000'000LL);
+    jrv.onReturn(-0.0008, 1'000'000'000LL);
+    jrv.onReturn(0.0015, 1'000'000'000LL);
+    jrv.onReturn(-0.002, 1'000'000'000LL);
+    p("micro.jrv.vol", jrv.volPerSqrtSecond());
+    p("micro.jrv.jumpfrac", jrv.jumpFraction());
     return 0;
 }

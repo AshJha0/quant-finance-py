@@ -1,6 +1,8 @@
+import os
 import sys
 
-BASE = r"C:\Users\ashis\AppData\Local\Temp\claude\C--work-java-OrderBook-rs\61d3e3c4-7df9-4bef-bb3c-d5cbdc4a99d6\scratchpad\crossport"
+# Outputs live beside this script, wherever the harness is checked out.
+BASE = os.path.dirname(os.path.abspath(__file__))
 
 # labels produced by iterative fits -> looser 1e-6 relative tolerance
 ITERATIVE = {"bs.iv.roundtrip", "bond.ytm", "zs.roundtrip", "pm.irr",
@@ -13,7 +15,7 @@ LOOSE = 1e-6
 def load(name):
     d = {}
     order = []
-    with open(f"{BASE}\\{name}") as f:
+    with open(os.path.join(BASE, name)) as f:
         for line in f:
             line = line.strip()
             if not line or "=" not in line:

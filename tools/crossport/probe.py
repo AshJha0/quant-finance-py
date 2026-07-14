@@ -38,6 +38,16 @@ from quantfinlib.backtest.validation.purged_kfold import PurgedKFold
 from quantfinlib.backtest.validation.sharpe_validation import SharpeValidation
 from quantfinlib.backtest.portfolio.position_sizing import PositionSizing
 from quantfinlib.indicators.indicators import Indicators
+from quantfinlib.fx.fixing_risk import FixingRisk
+from quantfinlib.crb.hedge_optimizer import HedgeOptimizer
+from quantfinlib.crb.skewed_quoter import SkewedQuoter
+from quantfinlib.alpha.portfolio_construction import PortfolioConstruction
+from quantfinlib.microstructure.trade_classifier import TradeClassifier
+from quantfinlib.microstructure.vpin import Vpin
+from quantfinlib.microstructure.hawkes_intensity import HawkesIntensity
+from quantfinlib.microstructure.ewma_covariance import EwmaCovariance
+from quantfinlib.microstructure.avellaneda_stoikov import AvellanedaStoikov
+from quantfinlib.microstructure.jump_robust_volatility import JumpRobustVolatility
 
 
 def p(label, v):
@@ -235,6 +245,77 @@ def main():
     p("ind.rsi", Indicators.rsi(v, 14)[99])
     p("ind.macd", Indicators.macd(v, 12, 26, 9).line[99])
     p("ind.boll.up", Indicators.bollinger(v, 20, 2).upper[99])
+
+    # ---- Section 8: fx / crb / alpha / microstructure (Phase 3) ----
+    fix_prices = [100.1, 100.3, 100.2, 100.5]
+    fix_sizes = [10.0, 20.0, 15.0, 5.0]
+    p("fx.twap", FixingRisk.window_twap(fix_prices))
+    p("fx.vwap", FixingRisk.window_vwap(fix_prices, fix_sizes))
+    p("fx.trackerr", FixingRisk.tracking_error_std(0.002, 5.0))
+    p("fx.partrate", FixingRisk.participation_rate(50000, 400000))
+
+    hedge_exposures = [1000000.0, -500000.0]
+    hedge_cov = [[0.04, 0.01], [0.01, 0.09]]
+    hedge_loadings = [[1.0, 0.5], [0.3, 1.0]]
+    hedge_cost = [200.0, 300.0]
+    hedge0 = HedgeOptimizer.hedge(hedge_exposures, hedge_cov, hedge_loadings, hedge_cost, 0.0)
+    p("crb.hedge0.h0", hedge0[0])
+    p("crb.hedge0.h1", hedge0[1])
+    hedge_l1 = HedgeOptimizer.hedge(hedge_exposures, hedge_cov, hedge_loadings, hedge_cost, 400.0)
+    p("crb.hedgeL1.h0", hedge_l1[0])
+    p("crb.hedgeL1.h1", hedge_l1[1])
+    skq = SkewedQuoter.quote(100.0, 5.0, 300000, 1000000, 0.6)
+    p("crb.quote.bid", skq.bid)
+    p("crb.quote.ask", skq.ask)
+    p("crb.quote.skew", skq.skew_bps)
+
+    alpha_scores = [1.2, -0.5, 0.3, 2.1, -1.8, 0.9]
+    alpha_w = PortfolioConstruction.z_score_weights(alpha_scores, 1.0, 0.3)
+    p("alpha.zw0", alpha_w[0])
+    p("alpha.zw3", alpha_w[3])
+
+    tc = TradeClassifier()
+    tc.on_quote(99.0, 101.0)
+    trade_prices = [101.0, 100.5, 99.0, 100.0, 100.0, 102.0]
+    lee_ready_sum = sum(tc.classify(tp) for tp in trade_prices)
+    p("micro.leeready.sum", lee_ready_sum)
+
+    vp = Vpin(100, 3)
+    vp.on_trade(60, True)
+    vp.on_trade(40, False)
+    vp.on_trade(30, True)
+    vp.on_trade(70, False)
+    vp.on_trade(90, True)
+    vp.on_trade(10, True)
+    p("micro.vpin.value", vp.vpin())
+
+    hi = HawkesIntensity(3.0, 0.2, 1_000_000_000)
+    hi.on_event(0)
+    hi.on_event(500_000_000)
+    hi.on_event(1_200_000_000)
+    hi.on_event(1_300_000_000)
+    p("micro.hawkes.intensity", hi.intensity(2_000_000_000))
+    p("micro.hawkes.burst", hi.burst_score(2_000_000_000))
+
+    ec = EwmaCovariance(2, 0.9)
+    ec.on_returns([0.01, 0.02])
+    ec.on_returns([-0.015, 0.005])
+    ec.on_returns([0.02, -0.01])
+    ec.on_returns([0.005, 0.015])
+    p("micro.ewmacov.cov01", ec.covariance(0, 1))
+    p("micro.ewmacov.corr01", ec.correlation(0, 1))
+
+    avs = AvellanedaStoikov(0.1, 1.5)
+    p("micro.as.bid", avs.bid_quote(100.0, 500.0, 0.0004, 300.0))
+    p("micro.as.ask", avs.ask_quote(100.0, 500.0, 0.0004, 300.0))
+
+    jrv = JumpRobustVolatility(5_000_000_000)
+    jrv.on_return(0.001, 1_000_000_000)
+    jrv.on_return(-0.0008, 1_000_000_000)
+    jrv.on_return(0.0015, 1_000_000_000)
+    jrv.on_return(-0.002, 1_000_000_000)
+    p("micro.jrv.vol", jrv.vol_per_sqrt_second())
+    p("micro.jrv.jumpfrac", jrv.jump_fraction())
 
 
 if __name__ == "__main__":
