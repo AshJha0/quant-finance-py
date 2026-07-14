@@ -44,7 +44,21 @@ research, teaching, and cross-checking numbers, not the hot path.
 C++, and Python (138 labels) and diffs to zero mismatches -- see
 `tools/crossport/`.
 
-Remaining (Phase 4): the teaching docs adapted to Python.
+Phase 4 (done): `fix/` codec + framer + encoder/view, `marketdata/`
+ITCH + L3 book (exact queue position) + NBBO, `sbe/` byte-exact
+flyweights, QFLT tick files, and `persist/Checkpoint` whose file
+format is byte-identical to Java's (a checkpoint written by one
+language restores in the other -- verified against a Java-written
+golden file), wired into LpScorecard, EwmaCovariance and VolumeCurve.
+
+**New to the codebase?** Start with [docs/LEARN.md](docs/LEARN.md) --
+a guided tour with run-verified snippets, five worked experiments
+(including re-running the cross-port probe), and pointers into the
+Java repo's teaching material (1000 exercises, 300 recipes,
+100 diagrams -- the concepts transfer 1:1, only syntax differs).
+
+Remaining: the live session/bus layer (FIX session threads, market-data
+bus, feeds) -- deliberately Java/C++ territory.
 
 ## Install and test
 
