@@ -10,11 +10,14 @@ spread, day-type), queue/fill modeling, trade classification, flow
 toxicity (VPIN, order-flow imbalance), jump-robust volatility, Hawkes
 self-excitation, streaming covariance, quoting (Avellaneda-Stoikov),
 and bar-only liquidity estimators. The live/streaming lane that needs a
-bus, a live feed engine, or checkpoint persistence (``SignalEngine``,
-``Auction``, ``CircuitBreakers``, ``ClosingAuctionModel``,
-``KalmanBeta``, ``TickSizeSchedule``, and every class's
-``persist.Checkpoint`` (de)serialization) is out of scope for this
-port -- see each module's docstring for what, if anything, it omits.
+bus or a live feed engine (``SignalEngine``, ``Auction``,
+``CircuitBreakers``, ``ClosingAuctionModel``, ``KalmanBeta``,
+``TickSizeSchedule``) is out of scope for this port -- see each
+module's docstring for what, if anything, it omits. ``persist.Checkpoint``
+(de)serialization is now ported (see :mod:`quantfinlib.persist`) and
+wired onto :class:`EwmaCovariance` and :class:`VolumeCurve` as the
+representative models; the remaining classes' ``writeState``/
+``readState`` are not yet carried over.
 """
 
 from quantfinlib.microstructure.almgren_chriss import AlmgrenChriss

@@ -16,14 +16,16 @@ schedule live instead of historical. Two parts:
 :meth:`expected_fraction_elapsed` is the live VWAP curve input.
 Cross-asset (volumes are just sums), single writer.
 
-Note: no ``persist.Checkpoint`` lane in this port, so ``write_state``/
-``read_state`` are not carried over (see
-:mod:`quantfinlib.microstructure.kyles_lambda`).
+:meth:`VolumeCurve.write_state`/:meth:`VolumeCurve.read_state` persist
+the learned profile (cross-day state) via ``persist.Checkpoint``;
+intraday state resets on restore.
 """
 
 from __future__ import annotations
 
 import numpy as np
+
+from quantfinlib.persist import Checkpoint
 
 
 class VolumeCurve:
@@ -157,3 +159,27 @@ class VolumeCurve:
 
     def days_learned(self) -> int:
         return self._days_learned
+
+    # ------------------------------------------------------------------
+    # Persistence (persist.Checkpoint)
+    # ------------------------------------------------------------------
+
+    def write_state(self, out) -> None:
+        """Persists the learned profile (cross-day state) -- see
+        :mod:`quantfinlib.persist`."""
+        out.write_byte(1)
+        out.write_int(self._days_learned)
+        Checkpoint.write_doubles(out, self._profile_ewma)
+
+    def read_state(self, inp) -> None:
+        """Restores the learned profile; intraday state resets
+        (restore at session start). Raises if the checkpoint was
+        written with a different bucket count or an unknown state
+        version."""
+        Checkpoint.require_version(inp, 1, "VolumeCurve")
+        days = inp.read_int()
+        Checkpoint.read_doubles_into(inp, self._profile_ewma)
+        self._days_learned = days
+        self._rebuild_prefix_sums()
+        self._today[:] = 0.0
+        self._today_total = 0.0

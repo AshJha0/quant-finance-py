@@ -21,6 +21,9 @@ would break PSD and silently skew correlations). Each pair seeds from
 its first observation rather than ramping from 0. The lower triangle
 lives in one flat array -- O(n^2) work, which at basket sizes (tens of
 symbols) on an interval cadence is microseconds. Single writer.
+
+:meth:`EwmaCovariance.write_state`/:meth:`EwmaCovariance.read_state`
+persist the learned matrix via ``persist.Checkpoint``.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ import math
 
 import numpy as np
 
+from quantfinlib.persist import Checkpoint
 from quantfinlib.util import math_utils
 
 #: 46,340 is where the triangle index i*(i+1)/2 leaves 32-bit int
@@ -184,3 +188,21 @@ class EwmaCovariance:
             raise ValueError(
                 f"array has {a.shape[0]} entries, basket needs "
                 f"{self._symbols}")
+
+    # ------------------------------------------------------------------
+    # Persistence (persist.Checkpoint)
+    # ------------------------------------------------------------------
+
+    def write_state(self, out) -> None:
+        """Persists the learned matrix -- see :mod:`quantfinlib.persist`."""
+        out.write_byte(1)
+        out.write_long(self._samples)
+        Checkpoint.write_doubles(out, self._tri)
+
+    def read_state(self, inp) -> None:
+        """Restores the matrix. Raises on a basket-size or version
+        mismatch."""
+        Checkpoint.require_version(inp, 1, "EwmaCovariance")
+        persisted = inp.read_long()
+        Checkpoint.read_doubles_into(inp, self._tri)
+        self._samples = persisted

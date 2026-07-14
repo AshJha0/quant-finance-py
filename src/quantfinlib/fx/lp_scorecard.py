@@ -21,13 +21,18 @@ reject bursts -- which happen precisely when the market runs and
 markouts are largest -- are sampled rather than overwritten, so the
 stat cannot be biased low for exactly the LPs it must expose.
 
-The Java ``persist.Checkpoint`` (over)night persistence is not ported
--- no ``persist`` lane in this Python port.
+:meth:`LpScorecard.write_state`/:meth:`LpScorecard.read_state` persist
+the learned per-LP behavior (reject rates, hold times, effective
+spreads, post-reject markouts) via ``persist.Checkpoint``; the pending-
+markout ring is intraday and is not persisted. Format version 2 (v1,
+from before markout seeding, is still read).
 """
 
 from __future__ import annotations
 
 import math
+
+from quantfinlib.persist import Checkpoint
 
 
 class LpScorecard:
@@ -169,3 +174,53 @@ class LpScorecard:
 
     def lp_count(self) -> int:
         return self._lp_count
+
+    # ------------------------------------------------------------------
+    # Persistence (persist.Checkpoint)
+    # ------------------------------------------------------------------
+
+    def write_state(self, out) -> None:
+        """Persists the learned LP behavior -- reject rates, hold
+        times, effective spreads and post-reject markouts. The
+        pending-markout ring is intraday (a reject awaiting its
+        horizon) and is not persisted. See :mod:`quantfinlib.persist`."""
+        out.write_byte(2)
+        Checkpoint.write_longs(out, self._attempts)
+        Checkpoint.write_longs(out, self._fills)
+        Checkpoint.write_longs(out, self._rejects)
+        Checkpoint.write_doubles(out, self._reject_rate)
+        Checkpoint.write_doubles(out, self._hold_nanos_ewma)
+        Checkpoint.write_doubles(out, self._eff_spread_ewma)
+        Checkpoint.write_doubles(out, self._markout_ewma)
+        Checkpoint.write_longs(out, self._markout_count)
+        out.write_long(self._matured_markouts)
+
+    def read_state(self, inp) -> None:
+        """Restores the card; pending markouts reset (restore at
+        session start). Reads both format versions -- a v1 checkpoint
+        carries no per-LP markout counts, so a restored nonzero markout
+        EWMA counts as already-seeded (it is). Raises on an LP-count
+        mismatch or an unknown version."""
+        v = inp.read_byte()
+        if v not in (1, 2):
+            raise ValueError(
+                f"LpScorecard state version {v} not supported (this "
+                f"build reads versions 1-2)")
+        Checkpoint.read_longs_into(inp, self._attempts)
+        Checkpoint.read_longs_into(inp, self._fills)
+        Checkpoint.read_longs_into(inp, self._rejects)
+        Checkpoint.read_doubles_into(inp, self._reject_rate)
+        Checkpoint.read_doubles_into(inp, self._hold_nanos_ewma)
+        Checkpoint.read_doubles_into(inp, self._eff_spread_ewma)
+        Checkpoint.read_doubles_into(inp, self._markout_ewma)
+        if v >= 2:
+            Checkpoint.read_longs_into(inp, self._markout_count)
+        else:
+            for lp in range(self._lp_count):
+                self._markout_count[lp] = 1 if self._markout_ewma[lp] != 0 else 0
+        self._matured_markouts = inp.read_long()
+        for i in range(len(self._pending_side)):
+            self._pending_side[i] = 0
+        for lp in range(self._lp_count):
+            self._pending_cursor[lp] = 0
+        self._pending_count = 0
