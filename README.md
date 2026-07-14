@@ -38,7 +38,17 @@ research, teaching, and cross-checking numbers, not the hot path.
 | `alpha` | Research pipeline: context/factors/evaluator/validation/backtester/construction/report, ensemble, online learner, Fama-MacBeth, calendar anomalies |
 | `microstructure` | Almgren-Chriss, Kyle's lambda, OU, variance ratio, TCA, impact models, seasonality curves (per-bucket seeding), queue/fill models, Lee-Ready, VPIN, Hawkes, EWMA covariance, Avellaneda-Stoikov |
 
-158 modules - 607 tests, all green.
+223 modules - 926 tests, all green.
+
+Phase 5 (done): `execution/` -- TWAP/VWAP/POV/implementation-shortfall
+schedulers, smart + adaptive order routing, dark-pool MEQ simulation,
+BenchmarkExecutor, spread/roll/iceberg algos, PortfolioExecutor;
+`trading/` -- throttle, last-look gate, paper gateway; `screener/`,
+`ml/` (GBDT, HMM regime detector, anomaly detection), `sim/` (Monte
+Carlo with a bit-exact port of Java's SplittableRandom), `dsl/`
+(the no-lookahead strategy builder), `regulatory/`, and the data
+loaders (CSV with the European-decimal regression pinned, corporate
+actions, point-in-time universe).
 
 **Cross-port verified**: an identical probe battery runs against Java,
 C++, and Python (138 labels) and diffs to zero mismatches -- see
@@ -57,8 +67,9 @@ a guided tour with run-verified snippets, five worked experiments
 Java repo's teaching material (1000 exercises, 300 recipes,
 100 diagrams -- the concepts transfer 1:1, only syntax differs).
 
-Remaining: the live session/bus layer (FIX session threads, market-data
-bus, feeds) -- deliberately Java/C++ territory.
+Remaining (deliberate): the threaded live layer (FIX session threads,
+market-data bus, WebSocket feeds, dashboards) -- Java/C++ territory;
+Python owns research, teaching, and cross-checking.
 
 ## Install and test
 
