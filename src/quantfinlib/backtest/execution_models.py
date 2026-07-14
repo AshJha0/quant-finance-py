@@ -11,6 +11,7 @@ cash accounting is simply price x quantity.
 
 from __future__ import annotations
 
+import math
 import random
 from abc import ABC, abstractmethod
 from typing import List, Optional
@@ -112,9 +113,12 @@ class IcebergOrder:
     def _next_tranche(self) -> int:
         base = self._display_qty
         if self._randomize_pct > 0:
-            base = max(1, round(self._display_qty
-                                * (1 + self._randomize_pct
-                                   * (2 * self._rnd.random() - 1))))
+            # Java Math.round: half-up (floor(x + 0.5)), not Python's
+            # banker's-rounding round().
+            base = max(1, math.floor(
+                self._display_qty
+                * (1 + self._randomize_pct * (2 * self._rnd.random() - 1))
+                + 0.5))
         return min(base, self._remaining)
 
     def on_fill(self, qty: int) -> bool:

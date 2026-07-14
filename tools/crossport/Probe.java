@@ -49,7 +49,21 @@ import com.quantfinlib.microstructure.Vpin;
 import com.quantfinlib.microstructure.HawkesIntensity;
 import com.quantfinlib.microstructure.EwmaCovariance;
 import com.quantfinlib.microstructure.JumpRobustVolatility;
+import com.quantfinlib.microstructure.AlmgrenChriss;
 import com.quantfinlib.trading.AvellanedaStoikov;
+import com.quantfinlib.trading.OrderThrottle;
+import com.quantfinlib.trading.LastLookGate;
+import com.quantfinlib.orderbook.Side;
+import com.quantfinlib.execution.Slice;
+import com.quantfinlib.execution.TwapScheduler;
+import com.quantfinlib.execution.VwapScheduler;
+import com.quantfinlib.execution.PovTracker;
+import com.quantfinlib.execution.ImplementationShortfallScheduler;
+import com.quantfinlib.execution.OrderPlacementPolicy;
+import com.quantfinlib.execution.DarkPoolSimulator;
+import com.quantfinlib.execution.Ucb1Selector;
+import com.quantfinlib.execution.BenchmarkExecutor;
+import com.quantfinlib.execution.VenueScorecard;
 
 import java.util.List;
 import java.util.Locale;
@@ -337,5 +351,80 @@ public final class Probe {
         jrv.onReturn(-0.002, 1_000_000_000L);
         p("micro.jrv.vol", jrv.volPerSqrtSecond());
         p("micro.jrv.jumpfrac", jrv.jumpFraction());
+
+        // ---- Section 9: execution ----
+        List<Slice> twap = TwapScheduler.schedule(1003, 10000, 4);
+        p("exec.twap.first", twap.get(0).quantity());
+        p("exec.twap.last", twap.get(3).quantity());
+
+        double[] vwapProfile = {0.2, 0.3, 0.51};
+        List<Slice> vwap = VwapScheduler.schedule(1000, vwapProfile, 9000);
+        p("exec.vwap.q0", vwap.get(0).quantity());
+        p("exec.vwap.q2", vwap.get(2).quantity());
+
+        PovTracker pov = new PovTracker(100000, 0.1, 0, 100000);
+        pov.onMarketVolume(1000);
+        long povDue = pov.dueQuantity();
+        pov.onExecuted(povDue);
+        pov.onMarketVolume(1000);
+        p("exec.pov.due", povDue);
+        p("exec.pov.realized", pov.realizedParticipation());
+
+        AlmgrenChriss.Params isParams =
+                new AlmgrenChriss.Params(10000, 1.0, 5, 0.3, 0.1, 0.01, 0.5);
+        List<Slice> isSlices = ImplementationShortfallScheduler.schedule(isParams, 5000);
+        p("exec.is.first", isSlices.get(0).quantity());
+        p("exec.is.last", isSlices.get(isSlices.size() - 1).quantity());
+
+        OrderPlacementPolicy.PostRegion region =
+                OrderPlacementPolicy.postRegion(0.01, 0.02, -0.005, 0.001);
+        p("exec.opp.from", region.from());
+        p("exec.opp.to", region.to());
+
+        DarkPoolSimulator dp = new DarkPoolSimulator();
+        dp.onQuote(99.99, 100.01);
+        dp.submit(Side.SELL, 60, 0);
+        dp.submit(Side.SELL, 60, 50);
+        List<DarkPoolSimulator.Fill> darkFills = dp.submit(Side.BUY, 100, 60);
+        long darkFilled = 0;
+        for (DarkPoolSimulator.Fill f : darkFills) {
+            darkFilled += f.quantity();
+        }
+        p("exec.dark.filled", darkFilled);
+        p("exec.dark.restsell", dp.restingQty(Side.SELL));
+
+        Ucb1Selector ucb = new Ucb1Selector(3);
+        ucb.select();
+        ucb.record(0, 0.4);
+        ucb.select();
+        ucb.record(1, 0.9);
+        ucb.select();
+        ucb.record(2, 0.2);
+        int ucbArm = ucb.select();
+        p("exec.ucb.arm", ucbArm);
+
+        BenchmarkExecutor be = BenchmarkExecutor.of(Side.BUY, 1000, BenchmarkExecutor.Benchmark.ARRIVAL_PRICE);
+        double benchDrift = be.scheduleDrift(0.3, BenchmarkExecutor.MarketState.neutral(100.0, 0.3));
+        p("exec.bench.drift", benchDrift);
+
+        OrderThrottle throttle = new OrderThrottle(10, 5);
+        for (int i = 0; i < 5; i++) {
+            throttle.tryAcquire(0L);
+        }
+        throttle.tryAcquire(0L);
+        p("exec.throttle.nanosuntil", throttle.nanosUntilAvailable(0L));
+
+        LastLookGate gate = new LastLookGate(0.0001);
+        boolean llgUp = gate.accept(true, 1.2000, 1.2002);
+        boolean llgDown = gate.accept(true, 1.2000, 1.1998);
+        p("exec.llg.up", llgUp ? 1 : 0);
+        p("exec.llg.down", llgDown ? 1 : 0);
+
+        VenueScorecard sc = new VenueScorecard(2);
+        sc.onFill(0, 1_000_000L, true, 100.0, 0L);
+        sc.onMid(100.05, 100_000_000L);
+        sc.onFill(0, 1_200_000L, true, 100.05, 100_000_000L);
+        sc.onMid(100.02, 200_000_000L);
+        p("exec.venue.markout", sc.postFillMarkout(0));
     }
 }

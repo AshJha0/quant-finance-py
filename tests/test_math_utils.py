@@ -341,6 +341,16 @@ def test_clamp_pins():
     assert mu.clamp(2.0, 0.0, 3.0) == 2.0
 
 
+def test_clamp_propagates_nan_like_java_math_min_max():
+    # Java's Math.max(lo, Math.min(hi, v)) returns NaN when v is NaN.
+    # Python's builtin min/max do NOT propagate NaN the same way --
+    # min(hi, nan) silently evaluates to hi because the NaN comparison
+    # is always false -- so a naive max(lo, min(hi, v)) would turn a
+    # NaN sentinel into hi instead of preserving "unknown".
+    assert math.isnan(mu.clamp(math.nan, 0.0, 1.0))
+    assert math.isnan(mu.clamp(math.nan, -1.0, 1.0))
+
+
 def test_nan_array():
     a = mu.nan_array(3)
     assert a.shape == (3,)

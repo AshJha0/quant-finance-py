@@ -70,6 +70,47 @@ def test_queue_position_estimator_validation():
         QueuePositionEstimator().join(-1, 100)
 
 
+def test_queue_fill_probability_rounds_half_share_up_like_java():
+    # Java Math.round is half-up (floor(x + 0.5)); Python's builtin
+    # round() is banker's-rounding, which would round this exact tie
+    # DOWN to 4 (since 4 is even) instead of up to 5.
+    q = QueuePositionEstimator()
+    q.join(5, 1)             # ahead=5, total resting incl. us = 6
+    q.on_level_resize(11)    # adds land behind: ahead unchanged at 5,
+                              # others (level - own) becomes 10, so the
+                              # ahead fraction of the queue is exactly 1/2
+    q.on_level_resize(10)    # a 1-share cancel, split pro-rata 50/50:
+                              # ahead becomes exactly 5 - 1*0.5 = 4.5
+    assert q.shares_ahead() == pytest.approx(4.5, abs=1e-9)
+    assert round(4.5) == 4    # Python's banker's rounding: down (documents the trap)
+    # fill_probability must have rounded 4.5 up to 5 shares-ahead
+    # (Java Math.round), matching QueueModel.fill_probability(5, ...)
+    # and NOT QueueModel.fill_probability(4, ...).
+    expected = QueueModel.fill_probability(5, 1, 1_000)
+    wrong = QueueModel.fill_probability(4, 1, 1_000)
+    assert q.fill_probability(1_000) == pytest.approx(expected, abs=1e-12)
+    assert q.fill_probability(1_000) != pytest.approx(wrong, abs=1e-12)
+
+
+def test_latency_fill_advantage_rounds_queue_growth_half_up():
+    # queue_growth can be negative (a latency DISADVANTAGE); Java
+    # Math.round and Python's round() disagree on negative half-ties
+    # too, e.g. round(-1.5) is -2 in Python (round-half-to-even) but
+    # -1 in Java (floor(-1.5 + 0.5) = floor(-1.0) = -1). Pick a join
+    # rate and (negative) latency that lands queue_growth exactly on
+    # -1.5: rate=3 qty/sec, latency=-0.5s -> growth = 3 * -0.5 = -1.5.
+    growth = QueueModel.queue_growth(3.0, -500_000_000)
+    assert growth == pytest.approx(-1.5, abs=1e-9)
+    assert round(growth) == -2   # documents the Python trap
+    same_ahead = QueueModel.latency_fill_advantage(
+        10, 1, 1_000, 3.0, -500_000_000)
+    # Java rounds -1.5 to -1 (extra = -1), so qty_ahead + extra = 9,
+    # not 8 (which round()'s -2 would have produced).
+    fast = QueueModel.fill_probability(10, 1, 1_000)
+    slow_java = QueueModel.fill_probability(10 - 1, 1, 1_000)
+    assert same_ahead == pytest.approx(fast - slow_java, abs=1e-12)
+
+
 # ------------------------------------------------------------------
 # HiddenLiquidityDetector
 # ------------------------------------------------------------------

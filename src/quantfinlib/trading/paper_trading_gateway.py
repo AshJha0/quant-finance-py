@@ -262,8 +262,11 @@ class PaperTradingGateway:
         mid = math.nan if q is None else q.mid()
         request = OrderRequest(order.symbol, order.side, order.quantity,
                                reference_price, "PAPER")
+        # Java Math.round: half-up (floor(x + 0.5)), not Python's
+        # banker's-rounding round() -- position can be negative (short)
+        # and can land exactly on a half share, where the two disagree.
         check = self._limit_checker.check(
-            request, mid, round(self.position(order.symbol)), 0.0)
+            request, mid, math.floor(self.position(order.symbol) + 0.5), 0.0)
         if not check.approved:
             order.status = OrderStatus.REJECTED
             self._log_rejection(f"order {order.id}: {check.violations}")

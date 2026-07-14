@@ -213,5 +213,13 @@ def parse_timestamp(value: str) -> int:
 
 
 def _to_epoch_millis(dt: datetime) -> int:
+    # Java's Instant.toEpochMilli() is epochSecond * 1000 +
+    # nanoOfSecond / 1_000_000 using integer division, and nanoOfSecond
+    # is always in [0, 999_999_999) -- i.e. it TRUNCATES (floors) any
+    # sub-millisecond remainder, it never rounds to the nearest
+    # millisecond. round() would round a .5-or-later microsecond
+    # fraction up to the next millisecond where Java keeps it down;
+    # floor division on the timedelta reproduces the exact Java
+    # truncation, including for pre-1970 (negative) instants.
     delta = dt - _EPOCH
-    return round(delta / timedelta(milliseconds=1))
+    return delta // timedelta(milliseconds=1)

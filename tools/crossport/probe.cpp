@@ -54,6 +54,20 @@
 #include "quantfinlib/microstructure/ewma_covariance.hpp"
 #include "quantfinlib/microstructure/avellaneda_stoikov.hpp"
 #include "quantfinlib/microstructure/jump_robust_volatility.hpp"
+#include "quantfinlib/microstructure/almgren_chriss.hpp"
+#include "quantfinlib/trading/order_throttle.hpp"
+#include "quantfinlib/trading/last_look_gate.hpp"
+#include "quantfinlib/orderbook/side.hpp"
+#include "quantfinlib/execution/slice.hpp"
+#include "quantfinlib/execution/twap_scheduler.hpp"
+#include "quantfinlib/execution/vwap_scheduler.hpp"
+#include "quantfinlib/execution/pov_tracker.hpp"
+#include "quantfinlib/execution/implementation_shortfall_scheduler.hpp"
+#include "quantfinlib/execution/order_placement_policy.hpp"
+#include "quantfinlib/execution/dark_pool_simulator.hpp"
+#include "quantfinlib/execution/ucb1_selector.hpp"
+#include "quantfinlib/execution/benchmark_executor.hpp"
+#include "quantfinlib/execution/venue_scorecard.hpp"
 
 using namespace quantfinlib;
 
@@ -333,5 +347,80 @@ int main() {
     jrv.onReturn(-0.002, 1'000'000'000LL);
     p("micro.jrv.vol", jrv.volPerSqrtSecond());
     p("micro.jrv.jumpfrac", jrv.jumpFraction());
+
+    // ---- Section 9: execution ----
+    std::vector<Slice> twap = twap_scheduler::schedule(1003, 10000, 4);
+    p("exec.twap.first", static_cast<double>(twap[0].quantity));
+    p("exec.twap.last", static_cast<double>(twap[3].quantity));
+
+    std::vector<double> vwapProfile = {0.2, 0.3, 0.51};
+    std::vector<Slice> vwap = vwap_scheduler::schedule(1000, vwapProfile, 9000);
+    p("exec.vwap.q0", static_cast<double>(vwap[0].quantity));
+    p("exec.vwap.q2", static_cast<double>(vwap[2].quantity));
+
+    PovTracker pov(100000, 0.1, 0, 100000);
+    pov.onMarketVolume(1000);
+    std::int64_t povDue = pov.dueQuantity();
+    pov.onExecuted(povDue);
+    pov.onMarketVolume(1000);
+    p("exec.pov.due", static_cast<double>(povDue));
+    p("exec.pov.realized", pov.realizedParticipation());
+
+    AlmgrenChriss::Params isParams(10000, 1.0, 5, 0.3, 0.1, 0.01, 0.5);
+    std::vector<Slice> isSlices = implementation_shortfall_scheduler::schedule(isParams, 5000);
+    p("exec.is.first", static_cast<double>(isSlices.front().quantity));
+    p("exec.is.last", static_cast<double>(isSlices.back().quantity));
+
+    order_placement_policy::PostRegion region =
+            order_placement_policy::postRegion(0.01, 0.02, -0.005, 0.001);
+    p("exec.opp.from", region.from);
+    p("exec.opp.to", region.to);
+
+    DarkPoolSimulator dp;
+    dp.onQuote(99.99, 100.01);
+    dp.submit(Side::SELL, 60, 0);
+    dp.submit(Side::SELL, 60, 50);
+    std::vector<DarkPoolSimulator::Fill> darkFills = dp.submit(Side::BUY, 100, 60);
+    std::int64_t darkFilled = 0;
+    for (const auto& f : darkFills) {
+        darkFilled += f.quantity;
+    }
+    p("exec.dark.filled", static_cast<double>(darkFilled));
+    p("exec.dark.restsell", static_cast<double>(dp.restingQty(Side::SELL)));
+
+    Ucb1Selector ucb(3);
+    ucb.select();
+    ucb.record(0, 0.4);
+    ucb.select();
+    ucb.record(1, 0.9);
+    ucb.select();
+    ucb.record(2, 0.2);
+    int ucbArm = ucb.select();
+    p("exec.ucb.arm", static_cast<double>(ucbArm));
+
+    BenchmarkExecutor be = BenchmarkExecutor::of(Side::BUY, 1000, BenchmarkExecutor::Benchmark::ARRIVAL_PRICE);
+    double benchDrift = be.scheduleDrift(0.3, BenchmarkExecutor::MarketState::neutral(100.0, 0.3));
+    p("exec.bench.drift", benchDrift);
+
+    OrderThrottle throttle(10, 5);
+    for (int i = 0; i < 5; i++) {
+        throttle.tryAcquire(0LL);
+    }
+    throttle.tryAcquire(0LL);
+    p("exec.throttle.nanosuntil", static_cast<double>(throttle.nanosUntilAvailable(0LL)));
+
+    LastLookGate gate(0.0001);
+    bool llgUp = gate.accept(true, 1.2000, 1.2002);
+    bool llgDown = gate.accept(true, 1.2000, 1.1998);
+    p("exec.llg.up", llgUp ? 1.0 : 0.0);
+    p("exec.llg.down", llgDown ? 1.0 : 0.0);
+
+    VenueScorecard sc(2);
+    sc.onFill(0, 1'000'000LL, true, 100.0, 0LL);
+    sc.onMid(100.05, 100'000'000LL);
+    sc.onFill(0, 1'200'000LL, true, 100.05, 100'000'000LL);
+    sc.onMid(100.02, 200'000'000LL);
+    p("exec.venue.markout", sc.postFillMarkout(0));
+
     return 0;
 }

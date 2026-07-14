@@ -110,6 +110,18 @@ def test_csv_bar_loader_iso_datetime_with_offset():
     assert series.timestamp(0) == 1577836800000  # same instant as UTC midnight
 
 
+def test_csv_bar_loader_sub_millisecond_fraction_truncates_not_rounds():
+    # Java's Instant.toEpochMilli() truncates (floors) any
+    # sub-millisecond remainder -- it never rounds to the nearest
+    # millisecond. 0.6ms and 0.4ms fractions must both truncate DOWN to
+    # the same whole millisecond, not round 0.6 up to the next one.
+    assert cbl.parse_timestamp("2023-01-01T00:00:00.0006") == 1672531200000
+    assert cbl.parse_timestamp("2023-01-01T00:00:00.0004") == 1672531200000
+    # Pre-1970 (negative epoch millis): the fractional remainder is
+    # still truncated toward the earlier instant, not rounded.
+    assert cbl.parse_timestamp("1969-12-31T23:59:59.9996") == -1
+
+
 def test_csv_bar_loader_rows_sorted_by_time_even_if_unordered_in_file():
     lines = [
         "timestamp,open,high,low,close",

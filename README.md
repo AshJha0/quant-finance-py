@@ -38,7 +38,7 @@ research, teaching, and cross-checking numbers, not the hot path.
 | `alpha` | Research pipeline: context/factors/evaluator/validation/backtester/construction/report, ensemble, online learner, Fama-MacBeth, calendar anomalies |
 | `microstructure` | Almgren-Chriss, Kyle's lambda, OU, variance ratio, TCA, impact models, seasonality curves (per-bucket seeding), queue/fill models, Lee-Ready, VPIN, Hawkes, EWMA covariance, Avellaneda-Stoikov |
 
-223 modules - 926 tests, all green.
+223 modules - 941 tests, all green.
 
 Phase 5 (done): `execution/` -- TWAP/VWAP/POV/implementation-shortfall
 schedulers, smart + adaptive order routing, dark-pool MEQ simulation,
@@ -51,7 +51,7 @@ loaders (CSV with the European-decimal regression pinned, corporate
 actions, point-in-time universe).
 
 **Cross-port verified**: an identical probe battery runs against Java,
-C++, and Python (138 labels) and diffs to zero mismatches -- see
+C++, and Python (156 labels) and diffs to zero mismatches -- see
 `tools/crossport/`.
 
 Phase 4 (done): `fix/` codec + framer + encoder/view, `marketdata/`

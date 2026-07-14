@@ -48,6 +48,19 @@ from quantfinlib.microstructure.hawkes_intensity import HawkesIntensity
 from quantfinlib.microstructure.ewma_covariance import EwmaCovariance
 from quantfinlib.microstructure.avellaneda_stoikov import AvellanedaStoikov
 from quantfinlib.microstructure.jump_robust_volatility import JumpRobustVolatility
+from quantfinlib.microstructure.almgren_chriss import AlmgrenChriss
+from quantfinlib.microstructure.execution import Side
+from quantfinlib.trading.order_throttle import OrderThrottle
+from quantfinlib.trading.last_look_gate import LastLookGate
+from quantfinlib.execution import twap_scheduler
+from quantfinlib.execution import vwap_scheduler
+from quantfinlib.execution.pov_tracker import PovTracker
+from quantfinlib.execution import implementation_shortfall_scheduler
+from quantfinlib.execution import order_placement_policy
+from quantfinlib.execution.dark_pool_simulator import DarkPoolSimulator
+from quantfinlib.execution.ucb1_selector import Ucb1Selector
+from quantfinlib.execution.benchmark_executor import BenchmarkExecutor, Benchmark, MarketState
+from quantfinlib.execution.venue_scorecard import VenueScorecard
 
 
 def p(label, v):
@@ -316,6 +329,75 @@ def main():
     jrv.on_return(-0.002, 1_000_000_000)
     p("micro.jrv.vol", jrv.vol_per_sqrt_second())
     p("micro.jrv.jumpfrac", jrv.jump_fraction())
+
+    # ---- Section 9: execution ----
+    twap = twap_scheduler.schedule(1003, 10000, 4)
+    p("exec.twap.first", twap[0].quantity)
+    p("exec.twap.last", twap[3].quantity)
+
+    vwap_profile = [0.2, 0.3, 0.51]
+    vwap = vwap_scheduler.schedule(1000, vwap_profile, 9000)
+    p("exec.vwap.q0", vwap[0].quantity)
+    p("exec.vwap.q2", vwap[2].quantity)
+
+    pov = PovTracker(100000, 0.1, 0, 100000)
+    pov.on_market_volume(1000)
+    pov_due = pov.due_quantity()
+    pov.on_executed(pov_due)
+    pov.on_market_volume(1000)
+    p("exec.pov.due", pov_due)
+    p("exec.pov.realized", pov.realized_participation())
+
+    is_params = AlmgrenChriss.Params(10000, 1.0, 5, 0.3, 0.1, 0.01, 0.5)
+    is_slices = implementation_shortfall_scheduler.schedule(is_params, 5000)
+    p("exec.is.first", is_slices[0].quantity)
+    p("exec.is.last", is_slices[-1].quantity)
+
+    region = order_placement_policy.post_region(0.01, 0.02, -0.005, 0.001)
+    p("exec.opp.from", region.from_)
+    p("exec.opp.to", region.to)
+
+    dp = DarkPoolSimulator()
+    dp.on_quote(99.99, 100.01)
+    dp.submit(Side.SELL, 60, 0)
+    dp.submit(Side.SELL, 60, 50)
+    dark_fills = dp.submit(Side.BUY, 100, 60)
+    dark_filled = sum(f.quantity for f in dark_fills)
+    p("exec.dark.filled", dark_filled)
+    p("exec.dark.restsell", dp.resting_qty(Side.SELL))
+
+    ucb = Ucb1Selector(3)
+    ucb.select()
+    ucb.record(0, 0.4)
+    ucb.select()
+    ucb.record(1, 0.9)
+    ucb.select()
+    ucb.record(2, 0.2)
+    ucb_arm = ucb.select()
+    p("exec.ucb.arm", ucb_arm)
+
+    be = BenchmarkExecutor.of(Side.BUY, 1000, Benchmark.ARRIVAL_PRICE)
+    bench_drift = be.schedule_drift(0.3, MarketState.neutral(100.0, 0.3))
+    p("exec.bench.drift", bench_drift)
+
+    throttle = OrderThrottle(10, 5)
+    for _ in range(5):
+        throttle.try_acquire(0)
+    throttle.try_acquire(0)
+    p("exec.throttle.nanosuntil", throttle.nanos_until_available(0))
+
+    gate = LastLookGate(0.0001)
+    llg_up = gate.accept(True, 1.2000, 1.2002)
+    llg_down = gate.accept(True, 1.2000, 1.1998)
+    p("exec.llg.up", 1 if llg_up else 0)
+    p("exec.llg.down", 1 if llg_down else 0)
+
+    sc = VenueScorecard(2)
+    sc.on_fill(0, 1_000_000, True, 100.0, 0)
+    sc.on_mid(100.05, 100_000_000)
+    sc.on_fill(0, 1_200_000, True, 100.05, 100_000_000)
+    sc.on_mid(100.02, 200_000_000)
+    p("exec.venue.markout", sc.post_fill_markout(0))
 
 
 if __name__ == "__main__":

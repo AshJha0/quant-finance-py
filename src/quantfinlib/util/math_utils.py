@@ -328,7 +328,19 @@ def inverse(a) -> np.ndarray:
 
 
 def clamp(v: float, lo: float, hi: float) -> float:
-    """Clamps ``v`` into [lo, hi]."""
+    """Clamps ``v`` into [lo, hi].
+
+    NaN propagates, matching Java's ``Math.max(lo, Math.min(hi, v))``
+    (Java's ``Math.min``/``Math.max`` return NaN when either operand is
+    NaN). Python's builtin ``min``/``max`` do NOT do this -- e.g.
+    ``min(1, float('nan'))`` evaluates to ``1``, not NaN, because the
+    NaN comparison silently fails and the first argument is kept. A
+    naive ``max(lo, min(hi, v))`` would therefore turn a NaN sentinel
+    (missing/invalid input) into a normal-looking boundary value
+    instead of propagating the "unknown" state to the caller.
+    """
+    if v != v:  # NaN check without a math import in the hot path
+        return v
     return max(lo, min(hi, v))
 
 

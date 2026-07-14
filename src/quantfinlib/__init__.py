@@ -5,4 +5,4 @@ optimal execution. Algorithms mirror the Java reference implementation
 class-for-class; hand-pinned test values are shared across ports.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"

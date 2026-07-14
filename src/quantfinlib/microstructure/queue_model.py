@@ -59,8 +59,13 @@ class QueueModel:
         ``P(fill | fast arrival) - P(fill | slow arrival)``."""
         fast = QueueModel.fill_probability(qty_ahead, order_qty,
                                            expected_traded_qty)
-        extra = round(QueueModel.queue_growth(join_rate_qty_per_sec,
-                                              latency_advantage_nanos))
+        # Java Math.round: half-up (floor(x + 0.5)), not Python's
+        # banker's-rounding round() -- queue_growth can be negative
+        # (a latency DISADVANTAGE), and the two only agree at half
+        # integers by coincidence, e.g. round(-1.5) is -2 in Python
+        # (round-half-to-even) but -1 in Java.
+        extra = math.floor(QueueModel.queue_growth(
+            join_rate_qty_per_sec, latency_advantage_nanos) + 0.5)
         slow = QueueModel.fill_probability(qty_ahead + extra, order_qty,
                                            expected_traded_qty)
         return fast - slow

@@ -138,6 +138,36 @@ def test_risk_gate_rejects_before_the_market():
     assert gw.position("BANNED") == pytest.approx(0, abs=1e-9)
 
 
+class _RecordingLimitChecker:
+    """Records the ``current_position_qty`` the gateway passed in, so
+    the risk-gate rounding can be inspected directly."""
+
+    def __init__(self) -> None:
+        self.seen_position_qty: List[float] = []
+
+    def check(self, order, reference_mid, current_position_qty, counterparty_exposure):
+        self.seen_position_qty.append(current_position_qty)
+        return _CheckResult(True, [])
+
+
+def test_risk_gate_rounds_a_half_share_position_up_like_java():
+    # Java Math.round is half-up (floor(x + 0.5)); Python's builtin
+    # round() is banker's-rounding and would round 4.5 DOWN to 4 here
+    # (4 is even). Build a position that lands exactly on a half
+    # share, then check the NEXT order sees it rounded to 5, not 4.
+    checker = _RecordingLimitChecker()
+    gw = PaperTradingGateway(100_000, 0, checker)
+    gw.on_quote("X", 99, 101)
+    gw.submit_market("X", Side.BUY, 4.5)
+    assert gw.position("X") == pytest.approx(4.5, abs=1e-9)
+    assert round(4.5) == 4   # documents the Python trap this guards against
+
+    gw.submit_market("X", Side.BUY, 1)
+    # The SECOND call's risk check is the one that observed the 4.5
+    # position from the first fill.
+    assert checker.seen_position_qty[1] == 5
+
+
 def test_market_order_without_quote_is_rejected():
     gw = PaperTradingGateway(100_000)
     order_id = gw.submit_market("UNKNOWN", Side.BUY, 10)

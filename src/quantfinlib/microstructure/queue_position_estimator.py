@@ -31,6 +31,8 @@ books and FX ECN/matching books alike).
 
 from __future__ import annotations
 
+import math
+
 from quantfinlib.microstructure.queue_model import QueueModel
 
 
@@ -95,8 +97,13 @@ class QueuePositionEstimator:
         """Fill probability over a horizon in which
         ``expected_traded_qty`` shares are expected to execute at this
         level."""
-        return QueueModel.fill_probability(round(self._ahead), self._own_qty,
-                                           expected_traded_qty)
+        # Java Math.round: half-up (floor(x + 0.5)), not Python's
+        # banker's-rounding round() -- the pro-rata estimate can land
+        # exactly on a half share (e.g. ahead=5, others=10 -> a cancel
+        # of 5 removes exactly 2.5), where round-half-to-even and
+        # round-half-up disagree.
+        return QueueModel.fill_probability(math.floor(self._ahead + 0.5),
+                                           self._own_qty, expected_traded_qty)
 
     def queue_progress(self) -> float:
         """Queue progress since joining: 0 right after :meth:`join`, 1
