@@ -51,6 +51,16 @@ class FxVolSurfaceBuilder:
         pass ``rr10``/``bf10`` for the full five-pillar smile."""
         if expiry_years <= 0 or forward <= 0 or atm_vol <= 0:
             raise ValueError("expiry, forward and atm vol must be > 0")
+        ten_delta = not math.isnan(rr10)
+        v25c = atm_vol + bf25 + rr25 / 2
+        v25p = atm_vol + bf25 - rr25 / 2
+        wing_vols = [v25c, v25p]
+        if ten_delta:
+            wing_vols += [atm_vol + bf10 + rr10 / 2, atm_vol + bf10 - rr10 / 2]
+        if any(not math.isfinite(v) or v <= 0 for v in wing_vols):
+            raise ValueError(
+                "risk-reversal/butterfly combination produces a non-positive "
+                "or non-finite wing vol")
         self._quotes.append((expiry_years, forward, atm_vol, rr25, bf25,
                              rr10, bf10))
         return self
@@ -154,12 +164,40 @@ class FxVolSurface:
             # then bisect to its right.
             peak = lo
             peak_val = -1.0
+            peak_idx = 0
             for i in range(201):
                 k = lo * (hi / lo) ** (i / 200.0)
                 v = _pa_call_delta(forward, k, sv)
                 if v > peak_val:
                     peak_val = v
                     peak = k
+                    peak_idx = i
+            # The coarse 200-point grid always slightly under-estimates the
+            # true continuous maximum. Refine with a golden-section search
+            # around the best grid sample so deltas legitimately attainable
+            # at the edge of range aren't wrongly rejected as unattainable.
+            glo = lo * (hi / lo) ** (max(0, peak_idx - 1) / 200.0)
+            ghi = lo * (hi / lo) ** (min(200, peak_idx + 1) / 200.0)
+            gr = (math.sqrt(5.0) - 1) / 2
+            a, b = glo, ghi
+            c = b - gr * (b - a)
+            d = a + gr * (b - a)
+            fc = _pa_call_delta(forward, c, sv)
+            fd = _pa_call_delta(forward, d, sv)
+            for _ in range(60):
+                if fc > fd:
+                    b, d, fd = d, c, fc
+                    c = b - gr * (b - a)
+                    fc = _pa_call_delta(forward, c, sv)
+                else:
+                    a, c, fc = c, d, fd
+                    d = a + gr * (b - a)
+                    fd = _pa_call_delta(forward, d, sv)
+            refined_k = 0.5 * (a + b)
+            refined_val = _pa_call_delta(forward, refined_k, sv)
+            if refined_val > peak_val:
+                peak_val = refined_val
+                peak = refined_k
             if delta > peak_val:
                 raise ValueError(
                     f"premium-adjusted call delta {delta} unattainable "

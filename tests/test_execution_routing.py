@@ -72,6 +72,17 @@ def test_hft_sor_validates_venue_count():
         HftSor(0)
 
 
+def test_hft_sor_nan_fee_venue_is_excluded_rather_than_poisoning_selection():
+    sor = HftSor(2)
+    sor.venue_quote(0, 0, 0, 10000, 500)   # best raw price, but NaN fee
+    sor.venue_quote(1, 0, 0, 10005, 500)   # worse raw price, clean fee
+    sor.fee(0, math.nan)
+    sor.fee(1, 0.0)
+    out = np.zeros(2, dtype=np.int64)
+    sor.route(Side.BUY, 400, 2 ** 31 - 1, out)
+    assert list(out) == [0, 400], "venue 0's NaN fee must not poison selection"
+
+
 # ------------------------------------------------------------------
 # VenueScorecard
 # ------------------------------------------------------------------

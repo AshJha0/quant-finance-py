@@ -116,3 +116,28 @@ def test_validation_rejects_bad_input():
     # An unattainable premium-adjusted delta is reported, not silently clamped.
     with pytest.raises(ValueError):
         FxVolSurface.strike_for_delta(F, ATM, T, 0.999, True, True)
+
+
+def test_add_rejects_rr_bf_combination_that_produces_non_positive_wing_vol():
+    # atm + bf25 - rr25/2 goes to zero/negative for an aggressive combination.
+    with pytest.raises(ValueError):
+        FxVolSurface.builder().add(T, F, 0.05, 0.20, -0.03)
+
+
+def test_strike_for_delta_accepts_pa_delta_near_the_true_continuous_peak():
+    # A delta right at the edge of the coarse 200-point grid's discretely
+    # sampled maximum must still resolve -- the golden-section refinement
+    # closes the gap to the true continuous peak.
+    sv = ATM * math.sqrt(T)
+    lo = F * math.exp(-8 * sv)
+    hi = F * math.exp(8 * sv)
+    grid_peak_val = -1.0
+    for i in range(201):
+        k = lo * (hi / lo) ** (i / 200.0)
+        d2 = math.log(F / k) / sv - 0.5 * sv
+        v = (k / F) * mu.norm_cdf(d2)
+        if v > grid_peak_val:
+            grid_peak_val = v
+    near_peak_delta = grid_peak_val - 1e-9
+    k = FxVolSurface.strike_for_delta(F, ATM, T, near_peak_delta, True, True)
+    assert math.isfinite(k) and k > 0

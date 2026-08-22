@@ -53,6 +53,9 @@ def allocate_proportionally(total: int, weights: Sequence[float]) -> np.ndarray:
     n = w.shape[0]
     if np.any(w < 0):
         raise ValueError(f"negative weight: {float(w[w < 0][0])}")
+    if not np.all(np.isfinite(w)):
+        bad = w[~np.isfinite(w)][0]
+        raise ValueError(f"non-finite weight: {float(bad)}")
     total_weight = float(np.sum(w))
     out = np.zeros(n, dtype=np.int64)
     if total_weight == 0:
