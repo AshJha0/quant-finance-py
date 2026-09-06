@@ -20,8 +20,10 @@ market pays you to trade" is an estimation artifact.
 :meth:`KylesLambda.lambda_` stays raw for diagnostics.
 
 Gap discipline: non-finite inputs are skipped whole; the moments seed
-from the first valid sample. (The Java checkpoint persistence is not
-ported — no ``persist`` lane in the Python port.)
+from the first valid sample. (The Java class also snapshots itself
+into a checkpoint; the Python ``persist/Checkpoint`` lane exists —
+``EwmaCovariance``, ``LpScorecard`` and ``VolumeCurve`` use it — but
+``KylesLambda`` is not wired into it in this port.)
 """
 
 from __future__ import annotations

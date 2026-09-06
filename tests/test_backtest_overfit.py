@@ -78,3 +78,17 @@ def test_cscv_validates_its_inputs():
     nan[3, 1] = math.nan
     with pytest.raises(ValueError):
         OverfitProbability.cscv_sharpe(nan, 4)                 # non-finite
+
+
+def test_two_identical_variants_score_pbo_one_by_the_tie_rule():
+    # Review: identical columns tie on every split; the IS winner is the
+    # first (strictly-greater, first-wins) and its OOS rank is 1 of 2 ->
+    # omega = 1/3, lambda = ln(1/2) < 0 on every split -> PBO = 1.
+    # (Bailey et al. count strictly-below-median only; the module
+    # docstring states this divergence.)
+    r = np.tile([[0.01], [-0.01], [0.02]], (8, 2))       # 24 x 2, identical columns
+    res = OverfitProbability.cscv(r, 4, mu.mean)
+    assert res.combinations == 6
+    assert res.pbo == 1.0
+    for lam in res.logits:
+        assert lam == pytest.approx(math.log(0.5), abs=1e-12)

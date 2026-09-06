@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>quant-finance-py — Python/NumPy port of Quant-Finance-Library, cross-port verified</title>
+<!-- GitHub Pages landing page. If the repository is renamed, update the
+     github.com/AshJha0/quant-finance-py links below to match. -->
+<style>
+:root{--teal:#16697a;--green:#16a085;--ink:#1a1a2e;--muted:#556}
+body{font-family:'Segoe UI',Arial,sans-serif;margin:0;color:var(--ink);background:#f7f8fa}
+header{background:var(--teal);color:#fff;padding:3rem 2rem}
+header h1{margin:0 0 .5rem;font-size:2.2rem}
+header p{margin:0;max-width:52rem;opacity:.92;line-height:1.5}
+.wrap{max-width:64rem;margin:0 auto;padding:0 2rem}
+nav{margin-top:1.2rem}
+nav a{display:inline-block;background:var(--green);color:#fff;text-decoration:none;
+  padding:.55rem 1.1rem;margin:.25rem .6rem .25rem 0;border-radius:4px;font-weight:600}
+nav a.secondary{background:rgba(255,255,255,.15)}
+h2{color:var(--teal);border-bottom:2px solid #e3e8ec;padding-bottom:.3rem;margin-top:2.5rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(17rem,1fr));gap:1rem;margin:1.2rem 0}
+.card{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.12);padding:1rem 1.2rem;border-radius:4px}
+.card h3{margin:.1rem 0 .5rem;font-size:1.02rem;color:var(--teal)}
+.card p{margin:0;font-size:.9rem;color:var(--muted);line-height:1.45}
+pre{background:#10222a;color:#d7e3ea;padding:1rem 1.2rem;border-radius:4px;overflow-x:auto;
+  font-size:.85rem;line-height:1.5}
+.numbers{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.12);border-radius:4px;
+  padding:1rem 1.4rem;font-family:Consolas,monospace;font-size:.88rem;line-height:1.7}
+.numbers table{border-collapse:collapse}
+.numbers td{padding:.05rem 1.2rem .05rem 0;vertical-align:top}
+.numbers td:first-child{color:var(--teal);white-space:nowrap}
+.honest{background:#fff8ec;border-left:4px solid var(--green);padding:.8rem 1.2rem;
+  border-radius:4px;font-size:.92rem;line-height:1.55;margin:1.2rem 0}
+footer{margin:3rem 0 2rem;color:var(--muted);font-size:.85rem;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>quant-finance-py</h1>
+    <p>A Python/NumPy port of Quant-Finance-Library — the Java reference implementation, v1.17.0 — with NumPy as the only runtime dependency (no scipy, no pandas). Pricing, rates, credit, risk, volatility, backtesting, FX dealing, central risk book, alpha research, microstructure, execution, wire formats and persistence: 223 modules in 26 packages, algorithm-faithful to the Java source so its hand-pinned test values transfer at the same tolerances. Every public entry point rejects NaN, infinity, empty input and out-of-range confidence with ValueError, and an identical probe battery runs against Java, C++ and Python (156 labels) and diffs to zero mismatches.</p>
+    <nav>
+      <a href="https://github.com/AshJha0/quant-finance-py/blob/main/docs/LEARN.md">Learn (guided tour)</a>
+      <a class="secondary" href="https://github.com/AshJha0/quant-finance-py/blob/main/docs/COOKBOOK.md">Cookbook</a>
+      <a class="secondary" href="https://github.com/AshJha0/quant-finance-py/blob/main/docs/ARCHITECTURE.md">Architecture</a>
+      <a class="secondary" href="https://github.com/AshJha0/quant-finance-py#references">References</a>
+      <a class="secondary" href="https://github.com/AshJha0/quant-finance-py">GitHub</a>
+      <a class="secondary" href="https://github.com/AshJha0/Quant-Finance-Library">quantfinlib (Java)</a>
+      <a class="secondary" href="https://ashjha0.github.io/quant-portfolio/">Quant portfolio</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+  <h2>Measured, not claimed</h2>
+  <div class="numbers"><table>
+    <tr><td>Test suite</td><td>1027 pytest tests in 114 test modules — all green in about 30 s (<code>python3 -m pytest -q</code>); Python ≥ 3.11, NumPy ≥ 1.26 the only dependency</td></tr>
+    <tr><td>Cross-port parity</td><td>one probe program per language (Java, C++, Python) with identical inputs prints 156 labelled results at 15 significant figures; <code>compare.py</code> diffs them pairwise at 1e-9 relative tolerance (1e-6 for 14 iterative-fit labels) — 156 labels, 0 mismatches, re-run against this checkout</td></tr>
+    <tr><td>Scope</td><td>223 modules in 26 packages, a strict four-layer import DAG; Phases 1–5 of the Java library ported; the threaded live layer (FIX session threads, market-data bus, WebSocket feeds, dashboards) deliberately not ported</td></tr>
+    <tr><td>Validation contract</td><td>NaN, infinity, empty series, unsorted/duplicate timestamps, sub-year or unsorted curve pillars and confidence outside (0, 1) raise <code>ValueError</code> with the offending value — nothing is clamped before it is checked; an unattainable implied vol is <code>NaN</code>, an expired option or NaN price raises, solvers never return a bracket endpoint</td></tr>
+    <tr><td>Reference values</td><td>Heston pinned to Broadie–Kaya (2006) and Andersen (2008) reference prices; vol = 0 greeks checked by finite difference; Acklam <code>norm_inv</code>, Lanczos <code>log_gamma</code>, Lentz incomplete beta transcribed from the Java source with its hand-pinned values</td></tr>
+    <tr><td>Determinism</td><td><code>sim/_java_random.py</code> is a bit-exact port of <code>java.util.SplittableRandom</code>, so <code>MonteCarloSimulator</code> and <code>SabrModel.calibrate</code> reproduce the Java seeded streams; where a Java test pinned an RNG stream the port either matches it bit-exactly or pins the distribution property and says so in the docstring</td></tr>
+    <tr><td>Docs guarded by tests</td><td><code>tests/test_version.py</code> re-derives the module count, collected test count, package counts and the 156-label count from the tree, and re-executes all 26 COOKBOOK recipes and diffs their printed output — a stale number in README, LEARN or ARCHITECTURE is a red test</td></tr>
+  </table></div>
+
+  <div class="honest"><strong>A NaN used to report zero risk.</strong> The latest review found that <code>risk_metrics</code> and <code>var_engine.tail</code> clamped with <code>max(0.0, nan)</code>, so a NaN in a return series came back as VaR = ES = 0; both now raise <code>ValueError</code> before any clamp, and confidence levels are gated to (0, 1). The same round fixed <code>frtb_es.stress_calibrated_es</code>, whose MAR33.6 floor sat on <code>ES_RS/ES_RC</code> instead of <code>ES_FC/ES_RC</code>; gave every Black–Scholes greek its closed-form vol = 0 limit instead of <code>ZeroDivisionError</code>; made <code>implied_vol</code> raise on a NaN price or an expired option instead of returning the 1e-4 bracket bound; made GARCH/GJR fits raise on NaN, zero-variance or undefined likelihood instead of returning default parameters; and made the LEARN.md cross-port verification command actually run (<code>compare.py</code> now resolves repo-relative paths). The suite grew from 947 to 1027 tests, with doc-count guards so the numbers on this page cannot go stale silently. Not ported, by decision: multi-curve discounting, day-count conventions, ISDA-model CDS, Heston calibration, shifted SABR, and the FRTB module is "styled after MAR33, not certified".</div>
+
+  <h2>What's inside</h2>
+  <div class="grid">
+    <div class="card"><h3>util and data: the bedrock</h3>
+      <p><code>util/math_utils</code> holds 27 public numerical primitives — mean/variance, percentile, Cholesky with the Java pivot rules, Acklam <code>norm_inv</code>, Abramowitz–Stegun <code>norm_cdf</code>, Lanczos <code>log_gamma</code>, Lentz incomplete beta, <code>t_cdf</code>. <code>data</code> provides <code>Bar</code> (validates high ≥ low as the Java record does), <code>BarSeries</code> (strictly increasing epoch-millisecond timestamps), a CSV loader with a pinned European-decimal regression, a series aligner, corporate actions, a point-in-time universe and QFLT tick files.</p></div>
+    <div class="card"><h3>pricing: Black–Scholes and its siblings</h3>
+      <p>Black–Scholes with every greek including the vol = 0 limits and a bracket-checked implied vol; Black-76, higher-order greeks, CRR binomial tree, digitals, barriers and touches (Reiner–Rubinstein), vanna-volga, Margrabe/Kirk spreads, quanto, variance swap, Kemna–Vorst and Turnbull–Wakeman Asians, structured notes, autocallables, Heston in the little-trap form, SABR (Hagan), vol surface, forward curve, dividends, fair value and triangular arbitrage — 22 modules.</p></div>
+    <div class="card"><h3>rates, credit, commodities, markets</h3>
+      <p><code>YieldCurve</code> bootstrap over validated whole-year pillars, a bond pricer with bracket-checked YTM, Nelson–Siegel and Svensson fits, a swap pricer (annuity/par/DV01), Vasicek/CIR/Hull–White, key-rate durations, swaptions and caps. <code>credit</code>: piecewise-constant hazard bootstrap (O'Kane–Turnbull), CDS pricer with the sub-grid maturity gate, Z-spread, CVA. Futures-curve carry and roll yield; index divisor continuity; private-markets IRR/TVPI/KS-PME/Geltner desmoothing.</p></div>
+    <div class="card"><h3>risk: what a risk committee asks for</h3>
+      <p>Four VaR flavours plus ES, Euler component VaR, Ledoit–Wolf shrinkage, peaks-over-threshold EVT (PWM fit, McNeil–Frey VaR/ES), stress and reverse stress, FRTB ES with the MAR33.5 liquidity-horizon cascade and MAR33.6 stress calibration, P&amp;L attribution, VaR backtests (Kupiec, Christoffersen, Basel traffic light), PCA, Gaussian/t copulas, HHI concentration, counterparty PFE and settlement risk. VaR and ES are positive loss numbers — fractions in <code>risk_metrics</code>, currency units in <code>var_engine</code>.</p></div>
+    <div class="card"><h3>volatility and indicators</h3>
+      <p>EWMA (RiskMetrics λ = 0.94), GARCH/GJR/EGARCH fits on the Java grids, HAR-RV, a model-free (VIX-style) index, Parkinson/Garman–Klass/Rogers–Satchell/Yang–Zhang range estimators, AIC/BIC selection and vol decomposition; a batch + streaming indicator set (SMA/EMA/RSI/MACD/Bollinger/ATR/VWAP…). Student-t GARCH likelihoods and standard errors are out of scope and say so.</p></div>
+    <div class="card"><h3>backtest: engine, validation, portfolio</h3>
+      <p><code>Backtester</code> with 5 strategies, cost and execution models under a cash-conservation contract, walk-forward with warm folds and grid search, plus trade/performance/drawdown analytics. <code>validation/</code> carries purged K-fold with embargo, CSCV probability of backtest overfitting, block bootstrap, deflated Sharpe and Monte Carlo trade reshuffle; <code>portfolio/</code> position sizing (Kelly, risk parity, max-Sharpe), optimizers, a portfolio backtester and cross-sectional momentum. Long-only, single-instrument by design.</p></div>
+    <div class="card"><h3>Desk engines: fx, crb, alpha, microstructure, execution</h3>
+      <p>FX conventions and calendars, swap points, FX swaps/NDFs, a premium-adjusted delta-quoted vol surface, tier book and LP scorecard/router; a central risk book with factor-space netting, skewed quoting, internalization, an L1 hedge optimizer and P&amp;L ledger; the alpha research pipeline (factors, evaluator, validation, construction, Fama–MacBeth, online learner); Almgren–Chriss, Kyle's lambda, VPIN, Hawkes, Lee–Ready, Avellaneda–Stoikov with a <code>degraded()</code> feed flag; TWAP/VWAP/POV/IS schedulers, smart and adaptive routing, dark-pool MEQ simulation.</p></div>
+    <div class="card"><h3>Wire formats, persistence, simulation</h3>
+      <p>FIX codec, framer, encoder and view; ITCH codec, an L3 book builder with exact queue position, NBBO; SBE byte-exact flyweights. <code>persist.Checkpoint</code> mirrors the Java file format (magic, version byte, named sections, atomic <code>os.replace</code> commit) and is wired into <code>LpScorecard</code>, <code>EwmaCovariance</code> and <code>VolumeCurve</code>. <code>sim</code> is Monte Carlo on a bit-exact <code>SplittableRandom</code>; <code>dsl</code> is the no-lookahead strategy builder; <code>ml</code> has GBDT, an HMM regime detector and robust anomaly detection.</p></div>
+    <div class="card"><h3>Cross-port harness and testing approach</h3>
+      <p><code>tools/crossport/</code> holds <code>Probe.java</code> (the source of truth for label order), <code>probe.py</code>, <code>probe.cpp</code>, the three checked-in outputs and <code>compare.py</code>; <code>tests/test_crossport_compare.py</code> pins that the documented invocation prints <code>156 labels, 0 mismatches</code>. The 1027-test suite transcribes the Java suite's hand-pinned values, adds NaN-poison contracts for every gate, implied-vol round trips, finite-difference greek checks, GARCH garbage/recovery, curve hygiene and known-answer tie rules for CSCV.</p></div>
+    <div class="card"><h3>References implemented</h3>
+      <p>Black &amp; Scholes (1973), Merton (1973), Black (1976), Garman–Kohlhagen (1983), Cox–Ross–Rubinstein (1979), Heston (1993) with Albrecher et al. (2007), Hagan et al. (2002); Nelson–Siegel (1987), Svensson (1994), Vasicek (1977), CIR (1985), Hull–White (1990); O'Kane–Turnbull (2003); Jorion, Acerbi–Tasche (2002), Ledoit–Wolf (2004), McNeil–Frey (2000), Kupiec (1995), Christoffersen (1998), BCBS d457 MAR33; Engle (1982), Bollerslev (1986), GJR (1993), Nelson (1991), Corsi (2009); Almgren–Chriss (2000), Kyle (1985), Avellaneda–Stoikov (2008), Easley–López de Prado–O'Hara (2012); López de Prado (2018), Bailey et al. (2017); Steele–Lea–Flood (2014) for SplitMix64. The full list, grouped by package, is in the README.</p></div>
+    <div class="card"><h3>Real-world usage notes</h3>
+      <p>Rates, yields and vols are annualized decimals; time is in years; theta is per year and vega/rho per 1.00 change; timestamps are epoch milliseconds. Inputs are gated, not repaired — the only documented exceptions are <code>AvellanedaStoikov</code> (non-finite variance sets <code>degraded()</code>) and <code>KylesLambda</code> (skips non-finite samples). <code>conditional_var</code> and <code>var_engine.tail</code> differ by one order statistic at small n; CSCV counts an exact-median rank as overfit. Python is the algorithms lane for research, teaching and cross-checking numbers, not the hot path.</p></div>
+  </div>
+
+  <h2>Part of a wider portfolio</h2>
+  <div class="grid">
+    <div class="card"><h3><a href="https://ashjha0.github.io/quant-portfolio/" style="color:inherit">quant-portfolio</a></h3>
+      <p>The end-to-end quantitative finance portfolio this project sits alongside: 10 project
+         areas built twice each (equity + FX) in Python with C++ and Rust performance twins —
+         31 sub-projects with golden-vector cross-language validation, a 481-question learning
+         guide and a verified cookbook. <a href="https://github.com/AshJha0/quant-portfolio">GitHub&nbsp;→</a></p></div>
+    <div class="card"><h3><a href="https://ashjha0.github.io/intraday-alpha-platform/" style="color:inherit">intraday-alpha-platform</a></h3>
+      <p>A polyglot (Python/C++/Rust/Java) research-to-production intraday trading platform:
+         market data → order books → 205-feature factory → 24 alphas → validation → portfolio →
+         fail-closed risk → execution → TCA, with an adaptive drift/lifecycle layer and 1,160
+         golden-parity tests. <a href="https://github.com/AshJha0/intraday-alpha-platform">GitHub&nbsp;→</a></p></div>
+    <div class="card"><h3><a href="https://github.com/AshJha0/Quant-Finance-Library" style="color:inherit">quantfinlib</a></h3>
+      <p>A zero-dependency quantitative finance platform for the JVM — research, validation,
+         execution and connectivity, from walk-forward backtesting to a measured
+         sub-microsecond tick-to-order path, with 1,090+ tests and CI on every push.
+         <a href="https://github.com/AshJha0/Quant-Finance-Library">GitHub&nbsp;→</a></p></div>
+  </div>
+
+  <h2>Quick start</h2>
+<pre>git clone https://github.com/AshJha0/quant-finance-py.git
+cd quant-finance-py
+
+# Python &gt;= 3.11, NumPy &gt;= 1.26 is the only runtime dependency
+python3 -m pip install -e .[dev]
+python3 -m pytest -q                       # 1027 tests, about 30 s
+
+# without installing: PYTHONPATH=src python3 ...
+# re-run the cross-port guarantee against the checked-in Java output
+PYTHONPATH=src python3 tools/crossport/probe.py &gt; /tmp/py_check.out
+python3 tools/crossport/compare.py tools/crossport/java.out /tmp/py_check.out
+# -&gt; 156 labels, 0 mismatches</pre>
+
+  <footer>MIT-licensed research and teaching code, not the hot path — see the <a href="https://github.com/AshJha0/quant-finance-py#readme">README</a> and <a href="https://github.com/AshJha0/quant-finance-py/blob/main/LICENSE">LICENSE</a> on GitHub.</footer>
+</div>
+</body>
+</html>

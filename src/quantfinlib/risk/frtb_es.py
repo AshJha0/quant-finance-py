@@ -5,7 +5,7 @@ Port of Java ``com.quantfinlib.risk.FrtbEs``: ES at 97.5% on a base
 STRESSED period::
 
     ES = sqrt( sum_j [ ES_j * sqrt((LH_j - LH_{j-1})/10) ]^2 )   (the LH cascade)
-    IMCC = ES_current * (ES_stressed,reduced / ES_current,reduced)
+    ES = ES_{R,S} * max(1, ES_{F,C} / ES_{R,C})                  (MAR33.6)
 
 Styled after BCBS MAR33, not certified: the FORMULAS are the
 regulation's, the tests pin their arithmetic, but regulatory capital
@@ -63,19 +63,42 @@ def liquidity_horizon_es(es_by_horizon, horizons) -> float:
     return math.sqrt(sum_sq)
 
 
-def stress_calibrated_es(es_current_full: float, es_stressed_reduced: float,
-                         es_current_reduced: float) -> float:
-    """The stressed-calibration multiplier (MAR33.6): current full-factor
-    ES scaled by the reduced-factor-set ratio between the stressed period
-    and today. The regulatory floor: the ratio is at least 1 — a
-    calmer-than-today stressed period must not DISCOUNT capital."""
+def stress_calibrated_es(es_current_full: float, es_current_reduced: float,
+                         es_stressed_reduced: float) -> float:
+    """The stress calibration (BCBS d457 MAR33.6, formerly bcbs352 §181(d)):
+
+    ``ES = ES_{R,S} x ES_{F,C} / ES_{R,C}`` — the stressed-period ES on
+    the REDUCED risk-factor set, scaled up by the current-period ratio
+    of the FULL set to the reduced set. The ratio ``ES_{F,C}/ES_{R,C}``
+    is floored at 1: the reduced set is a subset of the full set, so a
+    ratio below 1 means the reduced-set model is over-shocking, and the
+    regulation does not let that discount capital. Note what is NOT
+    floored — ``ES_{R,S}/ES_{R,C}``: a stressed period genuinely calmer
+    than today (which the 12-month worst-window search makes rare, not
+    impossible) is taken at face value.
+
+    Port note: the v1.0.0 transcription (and the Java ``FrtbEs`` it
+    mirrored) floored ``ES_{R,S}/ES_{R,C}`` and multiplied by the full
+    current ES — algebraically the same product, but the floor sat on
+    the wrong ratio (it inflated capital for a calm stressed window and
+    never floored an over-shocking reduced set). This port now follows
+    the regulation text; the cross-port probe pins only the cascade.
+
+    Args (MAR33.6 order):
+        es_current_full: ``ES_{F,C}`` — current 12-month period, full set.
+        es_current_reduced: ``ES_{R,C}`` — current period, reduced set (> 0).
+        es_stressed_reduced: ``ES_{R,S}`` — stressed period, reduced set.
+
+    Raises:
+        ValueError: on NaN, infinity or negative inputs.
+    """
     if (not (es_current_full >= 0) or es_current_full == math.inf
             or not (es_stressed_reduced >= 0) or es_stressed_reduced == math.inf
             or not (es_current_reduced > 0) or es_current_reduced == math.inf):
         raise ValueError(
             "ES inputs must be non-negative and finite (current reduced > 0)")
-    ratio = max(1.0, es_stressed_reduced / es_current_reduced)
-    return es_current_full * ratio
+    ratio = max(1.0, es_current_full / es_current_reduced)
+    return es_stressed_reduced * ratio
 
 
 class TrafficLight(Enum):

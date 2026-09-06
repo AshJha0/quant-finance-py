@@ -143,3 +143,35 @@ def test_tail_index_arithmetic_matches_java_ceil():
     t = ve.tail(losses, 0.975)
     assert t.var == pytest.approx(975.0, abs=1e-12)
     assert t.expected_shortfall == pytest.approx(987.5, abs=1e-9)
+
+
+# ----------------------------------------------------------------------
+# NaN-poison contract (review C1): tail() must raise on NaN/empty losses.
+# ----------------------------------------------------------------------
+
+def test_tail_rejects_nan_and_empty_losses():
+    # Before the gate: tail([1, 2, nan] + [0]*30, 0.95) -> VaR 2.0, ES 0.0.
+    with pytest.raises(ValueError):
+        ve.tail([1.0, 2.0, math.nan] + [0.0] * 30, 0.95)
+    with pytest.raises(ValueError):
+        ve.tail([], 0.95)
+    with pytest.raises(ValueError):
+        ve.tail([1.0, math.inf, 2.0], 0.95)
+    with pytest.raises(ValueError):
+        ve.tail(np.zeros((5, 2)), 0.95)          # not a 1-D sample
+
+
+def test_tail_still_clamps_a_finite_gain_quantile_at_zero():
+    # All-gains sample: the loss quantile is negative -> VaR 0, ES 0.
+    res = ve.tail([-1.0] * 40, 0.95)
+    assert res.var == 0.0 and res.expected_shortfall == 0.0
+
+
+def test_delta_normal_and_delta_gamma_reject_nan_inputs():
+    cov = [[0.01, 0.0], [0.0, 0.02]]
+    with pytest.raises(ValueError):
+        ve.delta_normal_var([1.0, math.nan], cov, 0.99)
+    with pytest.raises(ValueError):
+        ve.delta_gamma_var([1.0, 1.0], [0.1, 0.1], [[math.nan, 0], [0, 0.02]], 0.99)
+    with pytest.raises(ValueError):
+        ve.historical_var([1.0, 1.0], np.full((25, 2), math.nan), 0.99)

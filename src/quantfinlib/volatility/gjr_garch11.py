@@ -59,13 +59,21 @@ class GjrGarch11:
         targeting.
 
         Raises:
-            ValueError: for fewer than 100 returns.
+            ValueError: for fewer than 100 returns, for a NaN/Inf
+                return, or when the likelihood is undefined on every
+                grid cell (a constant / zero-variance series) — a fit
+                that never happened must not come back as the grid's
+                default parameters.
         """
         returns = np.asarray(returns, dtype=float)
         if returns.shape[0] < 100:
             raise ValueError(f"need at least 100 returns, got {returns.shape[0]}")
+        if not np.all(np.isfinite(returns)):
+            raise ValueError("returns must be finite (NaN/Inf found)")
         r = returns - mu.mean(returns)
         sample_var = mu.variance(r)
+        if not (sample_var > 0):
+            raise ValueError("returns have zero sample variance; GARCH likelihood undefined")
 
         best_alpha = 0.03
         best_gamma = 0.05
@@ -104,6 +112,9 @@ class GjrGarch11:
             g_hi = min(1.9, best_gamma + 2 * g_step)
             b_lo = max(1e-6, best_beta - 2 * b_step)
             b_hi = min(0.999, best_beta + 2 * b_step)
+        if not math.isfinite(best_ll):
+            raise ValueError("GJR-GARCH likelihood undefined on every grid cell "
+                             "(degenerate input?)")
         omega = sample_var * (1 - best_alpha - best_gamma / 2 - best_beta)
         return GjrGarch11.Params(omega, best_alpha, best_gamma, best_beta, best_ll)
 

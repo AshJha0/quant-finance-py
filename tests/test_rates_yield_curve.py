@@ -56,3 +56,42 @@ def test_tenors_are_ascending_pillars():
     assert curve.tenors() == [1.0, 3.0, 5.0]
     assert curve.zero_rate(1) == pytest.approx(0.01, abs=1e-15)
     assert curve.zero_rate(4) == pytest.approx(0.04, abs=1e-15)  # midpoint of 3y/5y
+
+
+# ----------------------------------------------------------------------
+# Review M6: input hygiene for both factories.
+# ----------------------------------------------------------------------
+
+def test_bootstrap_rejects_unsorted_fractional_and_nan_pillars():
+    with pytest.raises(ValueError):
+        YieldCurve.bootstrap_annual_par_swaps([2, 1, 3], [0.03, 0.031, 0.032])   # unsorted
+    with pytest.raises(ValueError):
+        YieldCurve.bootstrap_annual_par_swaps([1, 2, 2], [0.03, 0.031, 0.032])   # duplicate
+    with pytest.raises(ValueError):
+        YieldCurve.bootstrap_annual_par_swaps([0.5], [0.03])                     # sub-year
+    with pytest.raises(ValueError):
+        YieldCurve.bootstrap_annual_par_swaps([1, 2.5], [0.03, 0.031])           # fractional
+    with pytest.raises(ValueError):
+        YieldCurve.bootstrap_annual_par_swaps([1, 2], [0.03, math.nan])          # NaN par
+    with pytest.raises(ValueError):
+        YieldCurve.bootstrap_annual_par_swaps([1, math.nan], [0.03, 0.031])      # NaN tenor
+    # The sorted version of the unsorted input is the correct curve.
+    curve = YieldCurve.bootstrap_annual_par_swaps([1, 2, 3], [0.031, 0.03, 0.032])
+    assert curve.zero_rate(1.0) == pytest.approx(math.log(1.031), abs=1e-12)
+
+
+def test_of_zero_rates_rejects_nan_and_keeps_last_duplicate():
+    with pytest.raises(ValueError):
+        YieldCurve.of_zero_rates([1, 2], [0.03, math.nan])
+    with pytest.raises(ValueError):
+        YieldCurve.of_zero_rates([1, math.nan], [0.03, 0.03])
+    with pytest.raises(ValueError):
+        YieldCurve.of_zero_rates([1, math.inf], [0.03, 0.03])
+    # Documented TreeMap.put semantics: a duplicate tenor keeps the LAST rate.
+    curve = YieldCurve.of_zero_rates([1, 2, 2], [0.03, 0.04, 0.05])
+    assert curve.tenors() == [1.0, 2.0]
+    assert curve.zero_rate(2.0) == 0.05
+    # Unsorted input is fine here: the curve sorts its pillars.
+    curve = YieldCurve.of_zero_rates([3, 1, 2], [0.05, 0.03, 0.04])
+    assert curve.tenors() == [1.0, 2.0, 3.0]
+    assert curve.zero_rate(1.5) == pytest.approx(0.035, abs=1e-12)

@@ -101,7 +101,7 @@ def delta_gamma_var(exposures, gamma, covariance, confidence: float) -> float:
     # Cornish-Fisher: the LOSS quantile uses -z (left tail of P&L).
     z_cf = -z + (z * z - 1) * skew / 6
     pnl_quantile = mean + z_cf * math.sqrt(variance)
-    return max(0.0, -pnl_quantile)
+    return _non_negative(-pnl_quantile)
 
 
 def delta_gamma_es(exposures, gamma, covariance, confidence: float) -> float:
@@ -120,7 +120,7 @@ def delta_gamma_es(exposures, gamma, covariance, confidence: float) -> float:
     loss_skew = -skew
     es = -mean + math.sqrt(variance) * mu.norm_pdf(z) / (1 - confidence) \
         * (1 + z * loss_skew / 6)
-    return max(0.0, es)
+    return _non_negative(es)
 
 
 def _delta_gamma_cumulants(exposures, gamma, covariance):
@@ -156,6 +156,8 @@ def historical_var(exposures, factor_returns, confidence: float) -> VarResult:
         raise ValueError("need >= 20 scenarios")
     if fr.ndim != 2 or fr.shape[1] != e.shape[0]:
         raise ValueError("scenario width mismatch")
+    if not (np.all(np.isfinite(e)) and np.all(np.isfinite(fr))):
+        raise ValueError("exposures and factor returns must be finite")
     losses = -(fr @ e)
     return tail(losses, confidence)
 
@@ -191,15 +193,38 @@ def full_revaluation_var(scenarios, pricer: Callable[[np.ndarray], float],
 # ---------------------------------------------------------------------------
 
 def tail(losses, confidence: float) -> VarResult:
-    """VaR (quantile) and ES (tail mean) of a loss sample, positive = loss."""
+    """VaR (quantile) and ES (tail mean) of a loss sample, positive = loss.
+
+    VaR is the ``ceil(c * n) - 1`` order statistic of the sorted losses
+    and ES the mean of that and every larger loss (see the convention
+    note in :mod:`quantfinlib.risk.risk_metrics`).
+
+    Raises:
+        ValueError: on an empty or non-finite loss sample (a NaN loss
+            is a modelling problem, not a quantile — and ``max(0, nan)``
+            would otherwise report ZERO risk), or confidence outside
+            (0.5, 1).
+    """
     if not (0.5 < confidence < 1):
         raise ValueError("confidence must be in (0.5, 1)")
-    sorted_losses = np.sort(np.asarray(losses, dtype=float))
+    arr = np.asarray(losses, dtype=float)
+    if arr.ndim != 1 or arr.shape[0] == 0:
+        raise ValueError("losses must be a non-empty 1-D sample")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError("losses must be finite (NaN/Inf found)")
+    sorted_losses = np.sort(arr)
     n = sorted_losses.shape[0]
     index = min(n - 1, math.ceil(confidence * n) - 1)
-    var = max(0.0, float(sorted_losses[index]))
+    var = float(sorted_losses[index])
     es = float(np.sum(sorted_losses[index:])) / (n - index)
-    return VarResult(var, max(0.0, es))
+    return VarResult(0.0 if var < 0 else var, 0.0 if es < 0 else es)
+
+
+def _non_negative(x: float) -> float:
+    """Clamp a FINITE number at zero; NaN raises instead of hiding."""
+    if not math.isfinite(x):
+        raise ValueError(f"non-finite risk number: {x} (NaN/Inf in the inputs?)")
+    return 0.0 if x < 0 else x
 
 
 def _z_of(confidence: float) -> float:
@@ -212,6 +237,8 @@ def _require_square(exposures, covariance):
     e = np.asarray(exposures, dtype=float)
     c = np.asarray(covariance, dtype=float)
     n = e.shape[0]
-    if n < 1 or c.shape[0] != n:
-        raise ValueError("covariance must match exposures")
+    if n < 1 or c.ndim != 2 or c.shape[0] != n or c.shape[1] != n:
+        raise ValueError("covariance must be n x n matching the exposures")
+    if not (np.all(np.isfinite(e)) and np.all(np.isfinite(c))):
+        raise ValueError("exposures and covariance must be finite")
     return e, c, n

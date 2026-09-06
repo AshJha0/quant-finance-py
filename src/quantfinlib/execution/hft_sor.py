@@ -89,7 +89,8 @@ class HftSor:
                 px = self._ask_tick[v] if buy else self._bid_tick[v]
                 sz = self._ask_size[v] if buy else self._bid_size[v]
                 if sz <= 0 or px == (_NO_ASK if buy else _NO_BID) \
-                        or (px > limit_tick if buy else px < limit_tick):
+                        or (px > limit_tick if buy else px < limit_tick) \
+                        or not np.isfinite(self._fee_ticks[v]):
                     continue
                 all_in = px + self._fee_ticks[v] if buy else px - self._fee_ticks[v]
                 if best == -1 or (all_in < best_all_in if buy else all_in > best_all_in):

@@ -64,6 +64,21 @@ def test_schedulers_validate_inputs():
         vwap_schedule(1000, [-1, 2], 1000)
 
 
+def test_allocate_proportionally_rejects_nan_weight_instead_of_silent_uniform_split():
+    with pytest.raises(ValueError):
+        allocate_proportionally(100, [1, math.nan, 1])
+
+
+def test_allocate_proportionally_rejects_infinite_weight_instead_of_silent_uniform_split():
+    with pytest.raises(ValueError):
+        allocate_proportionally(100, [1, math.inf, 1])
+
+
+def test_vwap_schedule_rejects_nan_in_volume_profile():
+    with pytest.raises(ValueError):
+        vwap_schedule(1000, [1, math.nan, 1], 20_000)
+
+
 # ------------------------------------------------------------------
 # WMR fixing
 # ------------------------------------------------------------------

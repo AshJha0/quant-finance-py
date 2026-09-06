@@ -152,3 +152,40 @@ def test_gjr_forecast_horizon_semantics_match_garch():
     assert p.persistence() == pytest.approx(0.94, abs=1e-15)
     # uncond = omega / (1 - persistence) = 2e-6 / 0.06.
     assert uncond == pytest.approx(2e-6 / 0.06, abs=1e-18)
+
+
+# ----------------------------------------------------------------------
+# Review M5: a fit that never happened must not come back as defaults.
+# ----------------------------------------------------------------------
+
+def test_garch_refuses_nan_and_constant_input():
+    rng = np.random.default_rng(7)
+    r = rng.standard_normal(300) * 0.01
+    r[150] = math.nan
+    with pytest.raises(ValueError):
+        Garch11.fit(r)                       # used to return omega=nan, ll=-inf
+    with pytest.raises(ValueError):
+        Garch11.fit(np.full(200, 0.01))      # used to return omega=0, ll=-inf
+    with pytest.raises(ValueError):
+        GjrGarch11.fit(r)
+    with pytest.raises(ValueError):
+        GjrGarch11.fit(np.full(200, 0.01))
+    r[150] = math.inf
+    with pytest.raises(ValueError):
+        Garch11.fit(r)
+
+
+def test_garch_recovers_persistence_of_a_simulated_path():
+    # alpha = 0.08, beta = 0.90 (persistence 0.98), 5000 observations.
+    omega, alpha, beta = 2e-6, 0.08, 0.90
+    rng = np.random.default_rng(2024)
+    n = 5000
+    h = omega / (1 - alpha - beta)
+    r = np.empty(n)
+    for t in range(n):
+        r[t] = math.sqrt(h) * rng.standard_normal()
+        h = omega + alpha * r[t] * r[t] + beta * h
+    fit = Garch11.fit(r)
+    assert abs(fit.persistence() - 0.98) < 0.05
+    assert math.isfinite(fit.log_likelihood)
+    assert fit.omega > 0

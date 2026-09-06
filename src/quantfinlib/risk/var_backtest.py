@@ -68,6 +68,10 @@ def test(returns, var_forecasts, confidence: float) -> VarBacktestResult:
         raise ValueError("need >= 20 aligned returns/forecasts")
     if confidence <= 0 or confidence >= 1:
         raise ValueError("confidence must be in (0,1)")
+    if not (np.all(np.isfinite(r)) and np.all(np.isfinite(v))):
+        # ``nan < -v`` is False: a NaN return would count as a NON-exception
+        # and bias Kupiec toward GREEN.
+        raise ValueError("returns and VaR forecasts must be finite")
     n = r.shape[0]
     exception = r < -v
     x = int(np.count_nonzero(exception))
