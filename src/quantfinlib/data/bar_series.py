@@ -20,6 +20,10 @@ class BarSeries:
     """Immutable OHLCV series for a single symbol.
 
     Construct via :meth:`builder`, :meth:`of` or :meth:`from_bars`.
+    Timestamps must be STRICTLY increasing (``ValueError`` otherwise):
+    the backtester and every indicator iterate index order as time
+    order, so a mis-ordered feed would silently become look-ahead and a
+    duplicate timestamp would break ``series_aligner`` joins.
     """
 
     __slots__ = ("_symbol", "_timestamps", "_open", "_high", "_low",
@@ -39,6 +43,15 @@ class BarSeries:
         for a in (o, h, lo, c, v):
             if a.shape[0] != n:
                 raise ValueError("all arrays must share one length")
+        if n > 1:
+            steps = np.diff(ts)
+            if np.any(steps <= 0):
+                i = int(np.argmax(steps <= 0)) + 1
+                kind = "duplicate" if steps[i - 1] == 0 else "out-of-order"
+                raise ValueError(
+                    f"timestamps must be strictly increasing: {kind} timestamp "
+                    f"{int(ts[i])} at index {i} (every indicator and the "
+                    "backtester read index order as time order)")
         for a in (ts, o, h, lo, c, v):
             a.setflags(write=False)
         self._symbol = symbol

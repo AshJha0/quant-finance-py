@@ -51,9 +51,17 @@ import math
 
 class AvellanedaStoikov:
     """Reservation price and optimal half-spread quoter; see the
-    module docstring."""
+    module docstring.
 
-    __slots__ = ("_gamma", "_kappa", "_liquidity_half_spread")
+    Gap discipline, and its cost: a NaN/Inf/negative variance or horizon
+    reads as ``sigma^2 * tau = 0``, so the quoter shades NOTHING and
+    quotes the bare liquidity floor with whatever inventory it holds.
+    That is the right thing for one bad tick and the wrong thing for a
+    dead volatility feed — check :meth:`degraded` (True whenever the
+    last call fell back to 0) before trusting the quotes with size.
+    """
+
+    __slots__ = ("_gamma", "_kappa", "_liquidity_half_spread", "_degraded")
 
     def __init__(self, gamma: float, kappa: float) -> None:
         """
@@ -66,6 +74,7 @@ class AvellanedaStoikov:
         """
         if gamma <= 0 or kappa <= 0:
             raise ValueError("need gamma > 0 and kappa > 0")
+        self._degraded = False
         self._gamma = gamma
         self._kappa = kappa
         # log1p keeps the liquidity floor exact as gamma -> 0
@@ -78,7 +87,7 @@ class AvellanedaStoikov:
         """The inventory-shaded fair value:
         ``mid - inventory*gamma*sigma^2*tau``. Flat inventory or a
         dead/garbage variance returns the mid itself."""
-        return mid - inventory * self._gamma * self._variance_term(
+        return mid - inventory * self._gamma * self._variance(
             price_variance_per_second, horizon_seconds)
 
     def optimal_half_spread(self, price_variance_per_second: float,
@@ -87,7 +96,7 @@ class AvellanedaStoikov:
         ``(gamma*sigma^2*tau)/2 + (1/gamma)*ln(1 + gamma/kappa)``.
         Never below the liquidity floor -- even a becalmed market pays
         for immediacy."""
-        return (0.5 * self._gamma * self._variance_term(
+        return (0.5 * self._gamma * self._variance(
                     price_variance_per_second, horizon_seconds)
                 + self._liquidity_half_spread)
 
@@ -114,6 +123,21 @@ class AvellanedaStoikov:
 
     def kappa(self) -> float:
         return self._kappa
+
+    def degraded(self) -> bool:
+        """True if the most recent quote/reservation call received a
+        non-finite or non-positive variance or horizon and fell back to
+        the unshaded, floor-spread quote."""
+        return self._degraded
+
+    def _variance(self, price_variance_per_second: float,
+                  horizon_seconds: float) -> float:
+        term = self._variance_term(price_variance_per_second, horizon_seconds)
+        # A literal 0 variance/horizon is a legitimate input; anything
+        # else that maps to 0 (NaN, +/-Inf, negative) is a feed problem.
+        self._degraded = term == 0.0 and not (
+            price_variance_per_second == 0.0 or horizon_seconds == 0.0)
+        return term
 
     @staticmethod
     def _variance_term(price_variance_per_second: float,

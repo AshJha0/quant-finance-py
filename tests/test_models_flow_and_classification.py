@@ -213,3 +213,19 @@ def test_vpin_evicts_exactly_the_oldest_bucket_and_survives_block_trades():
     block.on_trade(9_223_372_036_854_775_806, True)
     assert block.ready()
     assert block.vpin() == pytest.approx(1.0, abs=1e-12)
+
+
+def test_vpin_fractional_bucket_sizes_complete_exactly():
+    # Review: 30 x 0.1 into 0.3 buckets used to leave an 8e-17 residue
+    # (float equality never fired) — now completes exactly 10 buckets and
+    # leaves the open bucket empty.
+    v = Vpin(0.3, 50)
+    for i in range(30):
+        v.on_trade(0.1, i % 2 == 0)
+    assert v.buckets_completed() == 10
+    assert v._bucket_buy + v._bucket_sell == 0.0
+    assert v.vpin() == pytest.approx(1.0 / 3.0, abs=1e-9)   # |2 - 1| / 3 per bucket
+    with pytest.raises(ValueError):
+        v.on_trade(math.nan, True)           # used to die in int(nan // bv)
+    with pytest.raises(ValueError):
+        v.on_trade(math.inf, True)

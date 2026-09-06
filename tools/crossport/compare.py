@@ -4,6 +4,17 @@ import sys
 # Outputs live beside this script, wherever the harness is checked out.
 BASE = os.path.dirname(os.path.abspath(__file__))
 
+
+def resolve(name):
+    """Path resolution: an absolute path or a path that exists relative
+    to the CURRENT directory is used as given (so
+    ``python tools/crossport/compare.py tools/crossport/java.out /tmp/x.out``
+    works from the repo root); a bare name such as ``java.out`` falls
+    back to the directory beside this script."""
+    if os.path.isabs(name) or os.path.exists(name):
+        return name
+    return os.path.join(BASE, name)
+
 # labels produced by iterative fits -> looser 1e-6 relative tolerance
 ITERATIVE = {"bs.iv.roundtrip", "bond.ytm", "zs.roundtrip", "pm.irr",
              "ns.b0", "ns.rmse", "ns.z5", "sv.b0", "sv.rmse", "sv.z5",
@@ -15,7 +26,7 @@ LOOSE = 1e-6
 def load(name):
     d = {}
     order = []
-    with open(os.path.join(BASE, name)) as f:
+    with open(resolve(name)) as f:
         for line in f:
             line = line.strip()
             if not line or "=" not in line:

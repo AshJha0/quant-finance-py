@@ -5,6 +5,13 @@ Continuous carry yield ``carry``: the dividend yield for equities or the
 foreign interest rate for FX (Garman-Kohlhagen). All rates and
 volatility are annualized; theta is per year; vega/rho are per 1.00
 change.
+
+Input contract: ``spot``, ``strike`` must be finite and > 0; ``rate``,
+``carry``, ``vol``, ``time_years`` must be finite; ``vol`` and
+``time_years`` may be <= 0 (the deterministic / expired limits are
+returned in closed form and every Greek agrees with ``price``). Any
+NaN or infinity raises ``ValueError`` — a NaN input must never come
+back as a NaN price that survives into a P&L.
 """
 
 from __future__ import annotations
@@ -44,6 +51,7 @@ class BlackScholes:
     @staticmethod
     def price(option_type: OptionType, spot: float, strike: float, rate: float,
               carry: float, vol: float, time_years: float) -> float:
+        _require_inputs(spot, strike, rate, carry, vol, time_years)
         if time_years <= 0:
             return BlackScholes.intrinsic(option_type, spot, strike)
         if vol <= 0:
@@ -64,10 +72,17 @@ class BlackScholes:
     @staticmethod
     def delta(option_type: OptionType, spot: float, strike: float, rate: float,
               carry: float, vol: float, time_years: float) -> float:
+        _require_inputs(spot, strike, rate, carry, vol, time_years)
         if time_years <= 0:
             return _intrinsic_delta(option_type, spot, strike)
-        d1 = _d1(spot, strike, rate, carry, vol, time_years)
         cf = math.exp(-carry * time_years)
+        if vol <= 0:
+            # Deterministic limit of the price branch: cf * 1{F > K}
+            # (put: -cf * 1{F < K}); ATM-forward takes the call side of
+            # the step, consistent with ``price`` returning 0 there.
+            return cf * _intrinsic_delta(option_type, _forward(spot, rate, carry, time_years),
+                                         strike)
+        d1 = _d1(spot, strike, rate, carry, vol, time_years)
         if option_type is OptionType.CALL:
             return cf * mu.norm_cdf(d1)
         return cf * (mu.norm_cdf(d1) - 1)
@@ -75,8 +90,9 @@ class BlackScholes:
     @staticmethod
     def gamma(spot: float, strike: float, rate: float, carry: float,
               vol: float, time_years: float) -> float:
-        if time_years <= 0:
-            return 0.0
+        _require_inputs(spot, strike, rate, carry, vol, time_years)
+        if time_years <= 0 or vol <= 0:
+            return 0.0      # a step payoff has no curvature away from the strike
         d1 = _d1(spot, strike, rate, carry, vol, time_years)
         return (math.exp(-carry * time_years) * mu.norm_pdf(d1)
                 / (spot * vol * math.sqrt(time_years)))
@@ -85,7 +101,8 @@ class BlackScholes:
     def vega(spot: float, strike: float, rate: float, carry: float,
              vol: float, time_years: float) -> float:
         """Per 1.00 change in volatility (divide by 100 for per-vol-point)."""
-        if time_years <= 0:
+        _require_inputs(spot, strike, rate, carry, vol, time_years)
+        if time_years <= 0 or vol <= 0:
             return 0.0
         d1 = _d1(spot, strike, rate, carry, vol, time_years)
         return spot * math.exp(-carry * time_years) * mu.norm_pdf(d1) * math.sqrt(time_years)
@@ -94,13 +111,21 @@ class BlackScholes:
     def theta(option_type: OptionType, spot: float, strike: float, rate: float,
               carry: float, vol: float, time_years: float) -> float:
         """Per year (divide by 365 for per-calendar-day)."""
+        _require_inputs(spot, strike, rate, carry, vol, time_years)
         if time_years <= 0:
             return 0.0
+        cf = math.exp(-carry * time_years)
+        df = math.exp(-rate * time_years)
+        if vol <= 0:
+            # Carry terms only (the diffusion term vanishes with vol):
+            # d/dT of the discounted forward intrinsic.
+            fwd = _forward(spot, rate, carry, time_years)
+            if option_type is OptionType.CALL:
+                return (-rate * strike * df + carry * spot * cf) if fwd > strike else 0.0
+            return (rate * strike * df - carry * spot * cf) if fwd < strike else 0.0
         sqrt_t = math.sqrt(time_years)
         d1 = _d1(spot, strike, rate, carry, vol, time_years)
         d2 = d1 - vol * sqrt_t
-        cf = math.exp(-carry * time_years)
-        df = math.exp(-rate * time_years)
         common = -spot * cf * mu.norm_pdf(d1) * vol / (2 * sqrt_t)
         if option_type is OptionType.CALL:
             return (common - rate * strike * df * mu.norm_cdf(d2)
@@ -112,10 +137,16 @@ class BlackScholes:
     def rho(option_type: OptionType, spot: float, strike: float, rate: float,
             carry: float, vol: float, time_years: float) -> float:
         """Per 1.00 change in the domestic rate."""
+        _require_inputs(spot, strike, rate, carry, vol, time_years)
         if time_years <= 0:
             return 0.0
-        d2 = _d1(spot, strike, rate, carry, vol, time_years) - vol * math.sqrt(time_years)
         df = math.exp(-rate * time_years)
+        if vol <= 0:
+            fwd = _forward(spot, rate, carry, time_years)
+            if option_type is OptionType.CALL:
+                return strike * time_years * df if fwd > strike else 0.0
+            return -strike * time_years * df if fwd < strike else 0.0
+        d2 = _d1(spot, strike, rate, carry, vol, time_years) - vol * math.sqrt(time_years)
         if option_type is OptionType.CALL:
             return strike * time_years * df * mu.norm_cdf(d2)
         return -strike * time_years * df * mu.norm_cdf(-d2)
@@ -141,7 +172,19 @@ class BlackScholes:
         BS price) — a stale or rounded market price must surface as
         "no vol", not silently come back as the 500% search bound and
         poison a smile.
+
+        Raises:
+            ValueError: for a NaN/negative ``market_price``, for
+                ``time_years <= 0`` (an expired option has no implied
+                vol — every vol gives the intrinsic price, so the
+                bisection would collapse onto the lower bracket bound
+                and return it), or non-finite/non-positive spot/strike.
         """
+        _require_inputs(spot, strike, rate, carry, 1.0, time_years)
+        if not (market_price >= 0) or market_price == math.inf:
+            raise ValueError(f"market_price must be finite and >= 0, got {market_price}")
+        if not (time_years > 0):
+            raise ValueError("time_years must be > 0 for an implied vol")
         lo, hi = 1e-4, 5.0
         if (market_price < BlackScholes.price(option_type, spot, strike, rate, carry, lo, time_years)
                 or market_price > BlackScholes.price(option_type, spot, strike, rate, carry, hi,
@@ -165,6 +208,22 @@ def _intrinsic_delta(option_type: OptionType, spot: float, strike: float) -> flo
     if option_type is OptionType.CALL:
         return 1.0 if spot > strike else 0.0
     return -1.0 if spot < strike else 0.0
+
+
+def _forward(spot: float, rate: float, carry: float, time_years: float) -> float:
+    return spot * math.exp((rate - carry) * time_years)
+
+
+def _require_inputs(spot: float, strike: float, rate: float, carry: float,
+                    vol: float, time_years: float) -> None:
+    if not (spot > 0) or spot == math.inf:
+        raise ValueError(f"spot must be finite and > 0, got {spot}")
+    if not (strike > 0) or strike == math.inf:
+        raise ValueError(f"strike must be finite and > 0, got {strike}")
+    for name, x in (("rate", rate), ("carry", carry), ("vol", vol),
+                    ("time_years", time_years)):
+        if not math.isfinite(x):
+            raise ValueError(f"{name} must be finite, got {x}")
 
 
 def _d1(spot: float, strike: float, rate: float, carry: float,

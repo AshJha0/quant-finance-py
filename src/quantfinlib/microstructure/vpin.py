@@ -57,8 +57,8 @@ class Vpin:
             quantity: traded volume, > 0.
             buy_aggressor: true if the buyer was the aggressor.
         """
-        if quantity <= 0:
-            raise ValueError("quantity must be > 0")
+        if not (quantity > 0) or quantity == math.inf:
+            raise ValueError(f"quantity must be finite and > 0, got {quantity}")
         remaining = quantity
         window = self._imbalances.shape[0]
         # Finish the open bucket first.
@@ -69,9 +69,13 @@ class Vpin:
         else:
             self._bucket_sell += take
         remaining -= take
-        if self._bucket_buy + self._bucket_sell == self._bucket_volume:
+        # Tolerance, not exact float equality: with fractional bucket
+        # sizes (FX/crypto notionals) ten 0.1 fills of a 0.3 bucket leave
+        # an 8e-17 residue that would otherwise keep the bucket open.
+        eps = 1e-12 * self._bucket_volume
+        if self._bucket_buy + self._bucket_sell >= self._bucket_volume - eps:
             self._complete_bucket()
-        if remaining == 0:
+        if remaining <= eps:
             return
         # Whole one-sided buckets, handled ARITHMETICALLY: a block of
         # any size is O(window), never O(quantity/bucketVolume) --

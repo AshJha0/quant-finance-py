@@ -65,3 +65,34 @@ def test_value_equality_like_java_record():
         Bar(1, 100.0, 102.0, 99.0, 101.0, 5_000.0)
     assert Bar(1, 100.0, 102.0, 99.0, 101.0, 5_000.0) != \
         Bar(2, 100.0, 102.0, 99.0, 101.0, 5_000.0)
+
+
+# ----------------------------------------------------------------------
+# Review M7: BarSeries timestamps must be strictly increasing.
+# ----------------------------------------------------------------------
+
+def test_bar_series_rejects_out_of_order_timestamps():
+    from quantfinlib.data.bar_series import BarSeries
+    b = BarSeries.builder("X")
+    for ts in (3, 1, 2):
+        b.add(ts, 1.0, 1.0, 1.0, 1.0, 1.0)
+    with pytest.raises(ValueError, match="strictly increasing"):
+        b.build()
+
+
+def test_bar_series_rejects_duplicate_timestamps():
+    from quantfinlib.data.bar_series import BarSeries
+    b = BarSeries.builder("X")
+    for ts in (1, 2, 2):
+        b.add(ts, 1.0, 1.0, 1.0, 1.0, 1.0)
+    with pytest.raises(ValueError, match="duplicate"):
+        b.build()
+    with pytest.raises(ValueError):
+        BarSeries("X", [5, 5], [1, 1], [1, 1], [1, 1], [1, 1], [1, 1])
+
+
+def test_bar_series_accepts_sorted_timestamps_and_single_bar():
+    from quantfinlib.data.bar_series import BarSeries
+    s = BarSeries("X", [1, 2, 3], [1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1], [1, 1, 1])
+    assert s.size() == 3
+    assert BarSeries("X", [7], [1], [1], [1], [1], [1]).size() == 1

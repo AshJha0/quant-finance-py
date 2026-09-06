@@ -16,12 +16,19 @@ def test_liquidity_horizon_cascade_pin():
     assert es == pytest.approx(math.sqrt(264), abs=1e-12)
 
 
-def test_stress_calibration_floors_at_one():
-    # The stressed ratio scales capital up, never down.
-    assert frtb_es.stress_calibrated_es(100, 30, 20) == pytest.approx(
-        150, abs=1e-12), "ratio 1.5"
-    assert frtb_es.stress_calibrated_es(100, 10, 20) == pytest.approx(
-        100, abs=1e-12), "a calm stressed period floors at 1, never discounts"
+def test_stress_calibration_mar33_6():
+    # ES = ES_{R,S} x ES_{F,C}/ES_{R,C}; args are (full-current,
+    # reduced-current, reduced-stressed).
+    assert frtb_es.stress_calibrated_es(30, 20, 100) == pytest.approx(
+        150, abs=1e-12), "full/reduced ratio 1.5 scales the stressed ES"
+    # The floor sits on ES_{F,C}/ES_{R,C}: a reduced set that over-shocks
+    # (ratio < 1) must not discount capital.
+    assert frtb_es.stress_calibrated_es(10, 20, 100) == pytest.approx(
+        100, abs=1e-12), "ES_{F,C} < ES_{R,C} is floored at 1"
+    # ...and NOT on ES_{R,S}/ES_{R,C}: a stressed period calmer than
+    # today is taken at face value (the old code floored this instead).
+    assert frtb_es.stress_calibrated_es(30, 20, 10) == pytest.approx(
+        15, abs=1e-12), "stressed < current is not floored"
 
 
 def test_es975_pin():
@@ -53,6 +60,8 @@ def test_cascade_gates():
     with pytest.raises(ValueError):
         frtb_es.liquidity_horizon_es([10.0, -1.0], [10, 20])
     with pytest.raises(ValueError):
-        frtb_es.stress_calibrated_es(100, 30, 0)            # reduced must be > 0
+        frtb_es.stress_calibrated_es(30, 0, 100)            # reduced must be > 0
     with pytest.raises(ValueError):
-        frtb_es.stress_calibrated_es(math.nan, 30, 20)      # NaN-rejecting
+        frtb_es.stress_calibrated_es(math.nan, 20, 100)     # NaN-rejecting
+    with pytest.raises(ValueError):
+        frtb_es.stress_calibrated_es(30, 20, math.nan)

@@ -86,6 +86,7 @@ class Heston:
     def put(spot: float, strike: float, rate: float, div_yield: float,
             time_years: float, p: HestonParams) -> float:
         """European put via put-call parity."""
+        _require_market_inputs(spot, strike, rate, div_yield, time_years)
         forward = spot * math.exp((rate - div_yield) * time_years)
         df = math.exp(-rate * time_years)
         return (Heston.call(spot, strike, rate, div_yield, time_years, p)

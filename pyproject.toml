@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "quant-finance-py"
 version = "1.0.0"
 description = "Python (NumPy) port of Quant-Finance-Library: alpha discovery -> validation -> risk -> optimal execution"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = ["numpy>=1.26"]
 
 [project.optional-dependencies]

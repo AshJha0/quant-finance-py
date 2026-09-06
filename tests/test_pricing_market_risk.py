@@ -130,3 +130,20 @@ def test_heston_semi_analytic_agrees_with_its_own_monte_carlo():
         Heston.call_monte_carlo(math.nan, 100, 0.02, 0, 1, p, 10, 100, 1)
     with pytest.raises(ValueError):
         Heston.call_monte_carlo(100, 100, 0.02, 0, -1, p, 10, 100, 1)
+
+
+def test_heston_matches_published_reference_prices():
+    # External pins (not the library's own MC):
+    # Broadie & Kaya (2006) "Exact simulation of stochastic volatility
+    # and other affine jump diffusion processes", Table 2 / Andersen
+    # (2008) §7: S=100, K=100, r=3.19%, T=1, kappa=6.21, theta=0.019,
+    # sigma_v=0.61, rho=-0.7, v0=0.010201 -> true call 6.8061.
+    p = HestonParams(6.21, 0.019, 0.61, -0.7, 0.010201)
+    assert Heston.call(100, 100, 0.0319, 0.0, 1.0, p) == pytest.approx(6.8061, abs=5e-4)
+    # Andersen (2008) "Simple and efficient simulation of the Heston
+    # stochastic volatility model", Case I: kappa=0.5, theta=v0=0.04,
+    # sigma_v=1.0, rho=-0.9, r=0, T=10 (a long-dated, Feller-violating
+    # case that exercises the little-trap branch cut): K=100 -> 13.0847.
+    p = HestonParams(0.5, 0.04, 1.0, -0.9, 0.04)
+    assert Heston.call(100, 100, 0.0, 0.0, 10.0, p) == pytest.approx(13.0847, abs=5e-4)
+    assert Heston.call(100, 140, 0.0, 0.0, 10.0, p) == pytest.approx(0.2958, abs=5e-4)

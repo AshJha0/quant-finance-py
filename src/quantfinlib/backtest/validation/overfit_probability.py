@@ -63,7 +63,13 @@ class OverfitProbability:
 
         Attributes:
             pbo: Fraction of IS/OOS splits whose in-sample winner ranked
-                at or below the out-of-sample median.
+                at or below the out-of-sample median (``lambda <= 0``).
+                Divergence note: Bailey et al. (2017) define PBO as the
+                mass STRICTLY below zero; this port (like the Java
+                original) counts an exact median rank — attainable when
+                the number of variants is odd — as overfit, so a tie
+                goes against the strategy and PBO is biased upward by
+                at most ``1/combinations`` per tied split.
             combinations: Number of symmetric splits evaluated, C(S, S/2).
             logits: One lambda per combination (enumeration order).
         """

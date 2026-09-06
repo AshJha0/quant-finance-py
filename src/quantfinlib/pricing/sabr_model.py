@@ -8,9 +8,10 @@ calibration. With beta fixed (market convention), calibrates
 fit that inter/extrapolates sensibly.
 
 Port note: the Java calibration seeds ``java.util.SplittableRandom(42)``
-for its random search; ``_SplittableRandom`` below is an exact
-transcription of that generator (splitmix64), so the calibrated
-parameters are bit-identical across the two ports.
+for its random search; the bit-exact transcription of that generator
+lives in :mod:`quantfinlib.sim._java_random` (``SplittableRandom64``,
+pinned against JVM output in ``tests/test_sim.py``) and is shared here,
+so the calibrated parameters are bit-identical across the two ports.
 """
 
 from __future__ import annotations
@@ -18,29 +19,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-_MASK64 = (1 << 64) - 1
-_GOLDEN_GAMMA = 0x9E3779B97F4A7C15
-_DOUBLE_UNIT = 1.0 / (1 << 53)
-
-
-class _SplittableRandom:
-    """Exact port of java.util.SplittableRandom's nextDouble stream."""
-
-    def __init__(self, seed: int) -> None:
-        self._seed = seed & _MASK64
-
-    def _next_seed(self) -> int:
-        self._seed = (self._seed + _GOLDEN_GAMMA) & _MASK64
-        return self._seed
-
-    @staticmethod
-    def _mix64(z: int) -> int:
-        z = ((z ^ (z >> 30)) * 0xBF58476D1CE4E5B9) & _MASK64
-        z = ((z ^ (z >> 27)) * 0x94D049BB133111EB) & _MASK64
-        return (z ^ (z >> 31)) & _MASK64
-
-    def next_double(self) -> float:
-        return (self._mix64(self._next_seed()) >> 11) * _DOUBLE_UNIT
+from quantfinlib.sim._java_random import SplittableRandom64 as _SplittableRandom
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +43,10 @@ class SabrModel:
         expiry ``t``."""
         if f <= 0 or k <= 0 or t <= 0 or alpha <= 0:
             raise ValueError("f, k, t, alpha must be positive")
+        if not (abs(rho) < 1):
+            raise ValueError(f"rho must be in (-1, 1), got {rho}")
+        if not (nu >= 0):
+            raise ValueError(f"nu must be >= 0, got {nu}")
         one_minus_beta = 1 - beta
         log_fk = math.log(f / k)
         fk_pow = (f * k) ** (one_minus_beta / 2)
@@ -78,11 +61,17 @@ class SabrModel:
             return alpha / f ** one_minus_beta * correction
 
         z = nu / alpha * fk_pow * log_fk
-        x = math.log((math.sqrt(1 - 2 * rho * z + z * z) + z - rho) / (1 - rho))
+        if abs(z) < 1e-12:
+            # nu -> 0 is the CEV limit: z/x(z) -> 1 (x(z) = z + O(z^2)),
+            # not the 0/0 the literal formula produces.
+            z_over_x = 1.0
+        else:
+            x = math.log((math.sqrt(1 - 2 * rho * z + z * z) + z - rho) / (1 - rho))
+            z_over_x = z / x
         denom = fk_pow * (1
                           + one_minus_beta * one_minus_beta / 24 * log_fk * log_fk
                           + one_minus_beta ** 4 / 1920 * log_fk ** 4)
-        return alpha / denom * (z / x) * correction
+        return alpha / denom * z_over_x * correction
 
     @staticmethod
     def calibrate(f: float, t: float, beta: float,

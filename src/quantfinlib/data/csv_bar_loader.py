@@ -101,6 +101,11 @@ def parse(lines: Sequence[str], symbol: str) -> BarSeries:
         bars = [Bar(b.timestamp * 1000, b.open, b.high, b.low, b.close, b.volume) for b in bars]
 
     bars.sort(key=lambda b: b.timestamp)
+    for prev, cur in zip(bars, bars[1:]):
+        if cur.timestamp == prev.timestamp:
+            raise ValueError(
+                f"duplicate timestamp {cur.timestamp} for {symbol}: the loader "
+                "sorts rows but will not guess which duplicate is the real bar")
     return BarSeries.from_bars(symbol, bars)
 
 

@@ -3,9 +3,10 @@
 This is the port-specific guide to the Python/NumPy mirror of
 [Quant-Finance-Library](https://github.com/AshJha0/Quant-Finance-Library)
 (the Java reference, v1.17.0). It is not a shrink-wrapped copy of the
-Java project's 26,000-line LEARN.md -- that stays the deep-material
-home for the whole family, with its 1000 worked exercises. This guide
-is the ~800-line version: how the Python port is built, a reading path
+Java project's LEARN.md (~26,000 lines and 1000 worked exercises at
+the v1.17.0 tag -- counts quoted from that repo, not re-verified here)
+-- that stays the deep-material home for the whole family. This guide
+is the ~1000-line version: how the Python port is built, a reading path
 through the packages that exist *in this repo today*, five hands-on
 experiments with real executed output, an honest account of what this
 port skips and why, and a map back to the Java documents for when you
@@ -33,8 +34,11 @@ Java test suite's hand-pinned values transfer at the same tolerances.
 The honesty note the top-level README states up front matters here:
 this port is the *algorithms* lane. Java (and the C++ sibling) own the
 low-latency story; Python is for research, teaching, and cross-checking
-numbers, not the hot path -- which is also why this port has no order
-book or risk-gate package (see Section 4).
+numbers, not the hot path -- which is why the threaded live layer
+(FIX session threads, the market-data bus, WebSocket feeds, dashboards)
+is deliberately absent even though the passive pieces (`marketdata`'s
+L3 book builder, `trading`'s throttle and last-look gate, the FIX
+codec) are here (see Section 4).
 
 ### Method naming
 
@@ -62,6 +66,7 @@ Python (`src/quantfinlib/pricing/black_scholes.py`):
 @staticmethod
 def price(option_type: OptionType, spot: float, strike: float, rate: float,
           carry: float, vol: float, time_years: float) -> float:
+    _require_inputs(spot, strike, rate, carry, vol, time_years)
     if time_years <= 0:
         return BlackScholes.intrinsic(option_type, spot, strike)
     if vol <= 0:
@@ -72,10 +77,14 @@ def price(option_type: OptionType, spot: float, strike: float, rate: float,
 
 Same parameter order, same branch structure, same reason for the
 `vol <= 0` branch (stated in both docstrings: without it the
-ATM-forward case is 0/0 in `d1` and the price comes back NaN). The
-class stays `BlackScholes`; only the method and parameter names go
-from camelCase to snake_case, and `type` becomes `option_type` because
-`type` shadows a Python builtin.
+ATM-forward case is 0/0 in `d1` and the price comes back NaN). The one
+added line is the input gate (`_require_inputs`: finite, positive spot
+and strike, finite everything else), which the Python port applies to
+every Greek as well so that a NaN never prices as NaN and `vol == 0`
+returns the deterministic limit from every Greek, not a
+`ZeroDivisionError` from `_d1`. The class stays `BlackScholes`; only
+the method and parameter names go from camelCase to snake_case, and
+`type` becomes `option_type` because `type` shadows a Python builtin.
 
 ### Exception mapping
 
@@ -141,6 +150,29 @@ public static double logGamma(double x) {
 }
 ```
 
+The gate matters most where a clamp follows it. Python's
+`max(0.0, x)` returns `0.0` when `x` is NaN (the comparison is False,
+so the first argument wins), which means an unguarded
+`max(0.0, -quantile)` turns one missing print in a return series into
+"VaR = 0". Every function in `risk_metrics`, `var_engine.tail`,
+`var_backtest`, the GARCH fits, the curve factories and `BarSeries`
+therefore validates its whole input array (non-empty, all finite,
+sorted where order matters) *before* any arithmetic, and the clamps
+are only ever applied to numbers that have passed. Try it:
+
+```python
+import math
+from quantfinlib.risk import risk_metrics as rm
+try:
+    rm.parametric_var([0.01, -0.02, math.nan, 0.03, -0.01], 0.95)
+except ValueError as e:
+    print("refused:", e)
+```
+
+```
+refused: returns must be finite (NaN/Inf found)
+```
+
 ### Bracket-checked solvers
 
 Every root-finder in this port (implied vol, bond YTM, credit-curve
@@ -153,7 +185,19 @@ Returns NaN when the price is not attainable inside the [1e-4, 5.0]
 vol bracket (below intrinsic, or above the maximum BS price) -- a
 stale or rounded market price must surface as "no vol", not silently
 come back as the 500% search bound and poison a smile.
+
+Raises:
+    ValueError: for a NaN/negative market_price, for time_years <= 0
+        (an expired option has no implied vol -- every vol gives the
+        intrinsic price, so the bisection would collapse onto the
+        lower bracket bound and return it), or non-finite/non-positive
+        spot/strike.
 ```
+
+The `Raises` clause is not decoration: a NaN price makes both bracket
+comparisons False, so without the gate the loop would run and hand
+back `1e-4` -- exactly the silent endpoint the first paragraph
+promises never to return.
 
 `CreditCurve.bootstrap` applies the identical pattern on the hazard-rate
 axis: bisection on `h` in `[1e-9, 10]` with an explicit bracket check,
@@ -164,8 +208,10 @@ repeated in every package that needs a root.
 
 ### Hand-pinned tests
 
-The port ships 158 modules and 607 tests (`python -m pytest`, all green
-as of this writing). In the pricing/rates/credit/risk/volatility
+The port ships 223 modules and 1027 tests (`python3 -m pytest -q`,
+all green as of this writing; `tests/test_version.py` re-counts both
+numbers against this file and the README so the figures cannot drift
+silently). In the pricing/rates/credit/risk/volatility
 packages these are not property-based or generated: they are the SAME
 numeric values the Java suite pins, carried over at the same tolerance,
 because the whole port strategy depends on "does this Python function
@@ -174,12 +220,12 @@ Open any file under `tests/` -- `tests/test_pricing_black_scholes.py`,
 `tests/test_backtest_engine.py` -- and you will find literal expected
 floats, not generated fixtures.
 
-### The cross-port 138-label guarantee
+### The cross-port 156-label guarantee
 
 This is the strongest claim in the whole project and it is mechanically
 checked, not asserted. A single probe program -- one file per language,
 identical inputs in identical order -- calls into Java, C++ and Python
-and prints 138 labelled results (`bs.call=...`, `ns.rmse=...`,
+and prints 156 labelled results (`bs.call=...`, `ns.rmse=...`,
 `micro.hawkes.intensity=...`) at 15 significant figures. A tiny compare
 script then diffs the three outputs pairwise at 1e-9 relative tolerance
 (1e-6 for the handful of labels that come out of an iterative fit,
@@ -189,10 +235,10 @@ and stated up front). The harness lives right here, in this repo:
 ```
 tools/crossport/
   Probe.java     -- the Java probe (source of truth for labels/order)
-  probe.py       -- this port's mirror (322 lines, 138 labelled prints)
+  probe.py       -- this port's mirror (404 lines, 156 labelled prints)
   probe.cpp      -- the C++ port's mirror
   compare.py     -- pairwise diff at 1e-9 / 1e-6
-  java.out       -- checked-in Java output (138 lines)
+  java.out       -- checked-in Java output (156 lines)
   py.out         -- checked-in Python output
   cpp.out        -- checked-in C++ output
 ```
@@ -200,14 +246,17 @@ tools/crossport/
 To re-run the guarantee yourself:
 
 ```bash
-PYTHONPATH=src python tools/crossport/probe.py > /tmp/py.out
-python tools/crossport/compare.py tools/crossport/java.out /tmp/py.out
+PYTHONPATH=src python3 tools/crossport/probe.py > /tmp/py_check.out
+python3 tools/crossport/compare.py tools/crossport/java.out /tmp/py_check.out
 ```
 
-A clean run prints `138 labels, 0 mismatches`. That is not a
-hypothetical -- it is the exact command this guide's author ran while
-writing this section, against this checkout, and it printed exactly
-that. If you touch a numeric algorithm while extending this port, this
+A clean run prints `156 labels, 0 mismatches`. That is not a
+hypothetical -- it is the exact command run against this checkout
+while this section was last revised, and it printed exactly that
+(`compare.py` accepts repo-relative paths, absolute paths, or bare
+names such as `java.out` that resolve beside the script;
+`tests/test_crossport_compare.py` pins all three). If you touch a
+numeric algorithm while extending this port, this
 is the fastest way to find out whether you broke it: the label names
 tell you which package regressed. Experiment (e) below walks through
 running this end to end, including diffing against the checked-in
@@ -217,17 +266,17 @@ running this end to end, including diffing against the checked-in
 
 Read these in order; each assumes the previous. Every "try it" snippet
 compiles down to a REPL-pasteable few lines -- run
-`PYTHONPATH=src python` from the repo root (or `pip install -e .` per
-the top-level README, then a plain `python`) and paste.
+`PYTHONPATH=src python3` from the repo root (or `pip install -e .` per
+the top-level README, then a plain `python3`) and paste.
 
 ### Stop 1 -- `util`: the numerical bedrock
 
 **What it does.** `math_utils` (`src/quantfinlib/util/math_utils.py`):
-28 primitives every other package leans on -- mean/variance/std_dev,
-percentile, covariance/correlation, Cholesky, Acklam's `norm_inv`, the
-Abramowitz-Stegun `norm_cdf`, skewness/kurtosis, a NaN-safe `pair_sort`.
-(One more than the C++ port's 27 -- the module docstring is worth
-reading for which one and why, a small but real divergence point.)
+27 public primitives every other package leans on -- mean/variance/
+std_dev, percentile, covariance/correlation, Cholesky, Acklam's
+`norm_inv`, the Abramowitz-Stegun `norm_cdf`, Lanczos `log_gamma`, the
+Lentz incomplete beta and `t_cdf`, skewness/kurtosis, a NaN-safe
+`pair_sort` (plus one private continued-fraction helper).
 
 **Read first:** the module docstring, then `norm_cdf`/`norm_inv` --
 everything downstream that touches a normal distribution (every option
@@ -261,8 +310,11 @@ write against this library.
 
 **Read first:** `bar_series.py` -- note `of()` (closes-only, synthetic
 OHLC), `slice()` (the train/test split every walk-forward tool uses),
-and that array accessors return the internal `np.ndarray` with
-`setflags(write=False)`, not a defensive copy.
+that array accessors return the internal `np.ndarray` with
+`setflags(write=False)`, not a defensive copy, and that the constructor
+refuses out-of-order or duplicate timestamps (the backtester and every
+indicator read index order as time order, so a mis-ordered feed would
+otherwise become silent look-ahead).
 
 **Try it:**
 
@@ -305,8 +357,12 @@ Vasicek/CIR/Hull-White short-rate models, key-rate durations,
 swaptions/caps.
 
 **Read first:** `yield_curve.py`'s module docstring is the best short
-explanation of curve-building in the whole codebase (it is quoted in
-full in this port's README); read it, then `swap_pricer.py`.
+explanation of curve-building in the whole codebase; read it, then
+`swap_pricer.py`. Note the factory gates: `bootstrap_annual_par_swaps`
+requires strictly ascending whole-year pillars >= 1 and finite par
+rates (an unsorted input used to bootstrap a wrong curve silently);
+`of_zero_rates` accepts any order, requires finite values, and keeps
+the last of a duplicate tenor.
 
 **Try it:**
 
@@ -586,7 +642,7 @@ inventory-control behavior the model exists to produce.
 ## 3. The five experiments
 
 Each of these is a complete, runnable script. Run with
-`PYTHONPATH=src python <file>.py` from the repo root.
+`PYTHONPATH=src python3 <file>.py` from the repo root.
 
 ### (a) Price and greek a vanilla, verify put-call parity
 
@@ -614,7 +670,7 @@ parity check: C-P=-3.41107442  S*e^-qT-K*e^-rT=-3.41107442  |gap|=0.000e+00
 
 Zero gap to the printed precision, and the `call price` line matches
 label `bs.call` in the cross-port probe to every digit shown --
-Section 1's 138-label guarantee is checking exactly this number against
+Section 1's 156-label guarantee is checking exactly this number against
 Java and C++, live, every time the harness runs.
 
 ### (b) Bootstrap a curve and price a swap at par
@@ -764,21 +820,24 @@ Section 4's RNG-stream note for why that distinction matters).
 ### (e) Run tools/crossport/probe.py and diff against the committed java.out
 
 ```bash
-PYTHONPATH=src python tools/crossport/probe.py > /tmp/py_check.out
-python tools/crossport/compare.py tools/crossport/java.out /tmp/py_check.out
+PYTHONPATH=src python3 tools/crossport/probe.py > /tmp/py_check.out
+python3 tools/crossport/compare.py tools/crossport/java.out /tmp/py_check.out
 ```
 
-Real output from this repo, run while writing this guide:
+Real output from this repo, run against this checkout:
 
 ```
---- tools/crossport/java.out vs /tmp/py_check.out: 138 labels, 0 mismatches ---
+--- tools/crossport/java.out vs /tmp/py_check.out: 156 labels, 0 mismatches ---
 ```
 
-Every one of the 138 labels -- pricing (`bs.*`, `b76.*`, `dig.*`,
-`bar.*`, `touch.*`, `asian.*`, `sn.*`, `ex.*`, `q.*`, `vs.*`), rates
-(`ns.*`, `sv.*`, `bond.*`, `zs.*`), credit (`cds.*`, `cva.*`), risk
-(`var.*`, `es.*`, `pca.*`), volatility (`garch.*`, `ewma.*`), backtest
-(`ta.*`, `pkf.*`), and microstructure (`micro.*`) -- agreed with Java to
+Every one of the 156 labels -- pricing (`bs.*`, `dig.*`, `bar.*`,
+`touch.*`, `asian.*`, `sn.*`, `ex.*`, `q.*`, `vs.*`), rates (`yc.*`,
+`swap.*`, `ns.*`, `sv.*`, `bond.*`, `zs.*`), credit (`cc.*`, `cds.*`,
+`cvar.*`), risk (`rm.*`, `var.*`, `evt.*`, `lw.*`, `kup.*`, `frtb.*`,
+`pca.*`, `srm.*`), volatility (`garch.*`, `ewma.*`, `rv.*`, `ic.*`),
+indicators (`ind.*`), backtest (`ta.*`, `pkf.*`), markets (`idx.*`,
+`pm.*`, `cmd.*`), fx/crb (`fx.*`, `crb.*`), alpha (`alpha.*`),
+microstructure (`micro.*`) and execution (`exec.*`) -- agreed with Java to
 1e-9 relative tolerance (1e-6 for the handful of iterative-fit labels
 the harness names explicitly: `bs.iv.roundtrip`, `bond.ytm`,
 `zs.roundtrip`, `pm.irr`, the Nelson-Siegel/Svensson fit parameters, and
@@ -790,48 +849,55 @@ error -- that is the harness doing exactly what it is for.
 
 ## 4. What is deliberately different here
 
-**Skipped packages, stated plainly.** As of this port (Phases 1-3, per
-the top-level README), everything in the Java "what's ported" table
-above is here: `util`, `data`, `pricing`, `rates`, `credit`,
-`commodities`, `markets`, `risk`, `volatility`, `indicators`,
-`backtest` (+ `strategies`/`validation`/`portfolio`), `fx`, `crb`,
-`alpha`, `microstructure`. What is NOT here, by design, not as a gap to
-be filled later: `orderbook` and `trading`. There is no `HftOrderBook`,
-no `HftRiskGate`, no order ring buffer in this repo -- those exist only
-in the C++ port (see its own LEARN.md, Section 2 Stop 11) because they
-are inherently a low-latency, allocation-free, single-threaded-hot-path
-story that does not fit this port's research-lane mission. If your
-interest in this library is the matching engine or the risk gate, this
-is not the port to read; the C++ repo is. What remains outstanding for
-the whole family (Phase 4, per this repo's own README) is "the teaching
-docs adapted to Python" -- this file is that deliverable.
+**What is here, stated plainly.** All five phases in the top-level
+README are done: the Phase 1-3 packages this tour walks through
+(`util`, `data`, `pricing`, `rates`, `credit`, `commodities`, `markets`,
+`risk`, `volatility`, `indicators`, `backtest` with `strategies/`,
+`validation/`, `portfolio/`, `fx`, `crb`, `alpha`, `microstructure`),
+the Phase 4 wire-format and persistence lane (`fix/` codec, framer,
+encoder/view; `marketdata/` ITCH codec, L3 book builder with exact
+queue position, NBBO; `sbe/` byte-exact flyweights; `persist/
+Checkpoint`), and the Phase 5 desk tooling (`execution/`, `trading/`
+throttle + last-look gate + paper gateway, `screener/`, `ml/`, `sim/`,
+`dsl/`, `regulatory/`, the data loaders). Run
+`find src -name '*.py' -not -name '__init__.py' | wc -l` and you get
+223, the number Section 1 and the README quote. See
+`docs/ARCHITECTURE.md` for the package map and dependency diagram.
 
-**The persistence lane does not exist in either non-Java port.** There
-is no snapshot/restore, no write-ahead log, no durable order-book
-recovery story here or in the C++ port. That is Java-only territory
-today; if your interest in this library is "can I recover a book's
-exact state after a crash," the Java repo is the only one of the three
-with an answer.
+**What is NOT here, by design.** The threaded live layer: FIX session
+threads, the market-data bus, WebSocket feeds, dashboards. Those are
+inherently a single-threaded-hot-path, allocation-free story that does
+not fit this port's research-lane mission; Java and C++ own them. The
+passive halves are ported -- you can decode an ITCH stream and
+rebuild an L3 book, encode and frame FIX messages, run orders through
+the throttle and last-look gate against the paper gateway -- but
+nothing here opens a socket or spawns a thread. If your interest in
+this library is the live matching engine or the session layer, the
+Java repo is the one to read.
 
-**RNG-stream policy: property pins, not bit-exact streams.** Where a
-Java test seeded `java.util.SplittableRandom` and pinned an exact
-expected value drawn from that stream, this port does NOT try to
-reproduce Java's bit pattern in `numpy.random`. Instead it pins the
-DISTRIBUTION PROPERTY the Java test actually cared about, and says so
-in the docstring. `monte_carlo_trade_shuffle.py` states this
-explicitly: "the Java reference draws its Fisher-Yates swaps from
-`SplittableRandom`; the RNG stream is not reproduced across ports --
-the pinned properties are order-invariance of terminal P&L, percentile
-ordering, determinism-per-seed and the worst-case-ordering tail rank."
-That is a real, considered trade-off, not a shortcut: reproducing
-Java's exact `SplittableRandom` stream in NumPy is possible (the C++
-port does exactly that, see its own LEARN.md) but buys little for a
-research-lane port whose tests only need "is this the right
-distribution," not "is this the same random number." The one exception
-proves the rule: `pricing/sabr_model.py` carries a private
-`_SplittableRandom` that DOES reproduce Java's exact stream, because
-its calibration test pins an exact expected value from Java's seeded
-random search and there was no cheaper way to make that test pass.
+**The persistence lane IS here.** `src/quantfinlib/persist/checkpoint.py`
+writes and restores a file format byte-identical to Java's (a
+checkpoint written by one language restores in the other; the test
+suite checks against a Java-written golden file). `LpScorecard`,
+`EwmaCovariance` and `VolumeCurve` are wired into it; `KylesLambda` is
+not (its docstring says so). There is no write-ahead log or order-book
+recovery story -- that belongs to the live layer above.
+
+**RNG-stream policy: bit-exact where a test pins a stream, property
+pins elsewhere.** Two places reproduce Java's `SplittableRandom` bit for
+bit: `sim/_java_random.py` (`SplittableRandom64`, pinned against JVM
+output in `tests/test_sim.py`), which `MonteCarloSimulator` uses so
+that Java and Python Monte Carlo paths are identical per seed, and
+`pricing/sabr_model.py`, whose seeded random-search calibration imports
+that same generator so the calibrated parameters match Java exactly.
+Everywhere else -- `var_engine.monte_carlo_var`,
+`monte_carlo_trade_shuffle`, the block bootstrap -- the port draws from
+`numpy.random.default_rng(seed)` and pins the DISTRIBUTION PROPERTY the
+Java test actually cared about (order-invariance of terminal P&L,
+percentile ordering, determinism-per-seed, tail rank), and says so in
+the docstring. That is a considered trade-off, not a shortcut:
+reproducing the Java stream buys nothing for a test whose claim is "is
+this the right distribution".
 
 **Performance positioning.** This port owns research ergonomics --
 NumPy-vectorized array sweeps, no scipy/pandas dependency to fight
@@ -840,15 +906,24 @@ into directly. It does not own, and does not try to own, the
 nanosecond story: there are no benchmarks in this repo, and the top-level
 README says so without hedging ("Python is for research, teaching, and
 cross-checking numbers, not the hot path"). C++ owns the measured-ns
-benchmarks (`benchmarks/ull_bench.cpp` in that repo, with real numbers
-and their own caveats printed at runtime). Java remains the reference:
-when Java, C++ and Python disagree, Java's number is what the other two
-are checked against (Section 1's cross-port guarantee), never the
-other way around.
+benchmarks. Java remains the reference: when Java, C++ and Python
+disagree, Java's number is what the other two are checked against
+(Section 1's cross-port guarantee), never the other way around.
 
-**Two small Python-only additions, for completeness.** The
-`microstructure` package here has four modules with no listed C++
-counterpart at the time this guide was written: `kyles_lambda.py`,
+**Conventions that differ inside this repo, so you are not surprised.**
+`risk_metrics.conditional_var` averages the returns at or below an
+interpolated percentile; `var_engine.tail` (which `frtb_es` and the
+stress tester use) takes the `ceil(c*n)-1` order statistic -- at n=8
+the two ES numbers differ by one order statistic, and both modules say
+so. `frtb_es.stress_calibrated_es` is MAR33.6 with the floor on the
+full/reduced ratio, arguments in regulation order (`ES_FC`, `ES_RC`,
+`ES_RS`). `OverfitProbability` counts an exact-median OOS rank as
+overfit (Bailey et al. count strictly below), which biases PBO upward
+by at most `1/combinations` per tied split -- the docstring states it.
+
+**Python-only additions, for completeness.** The `microstructure`
+package here has four modules with no listed C++ counterpart at the
+time this guide was written: `kyles_lambda.py`,
 `ornstein_uhlenbeck.py`, `variance_ratio.py`, `lead_lag_estimator.py`.
 They are real, tested modules, not placeholders -- `grep -rn
 "class KylesLambda" src/` finds the class, and its test lives under
@@ -865,7 +940,8 @@ transfer 1:1 across the port -- only the syntax differs (Java's
 camelCase becomes this port's snake_case; the C++ port keeps
 camelCase).
 
-**`LEARN.md`** (the Java repo, ~26,000 lines, 1000 worked exercises).
+**`LEARN.md`** (the Java repo; ~26,000 lines and 1000 worked exercises
+at the v1.17.0 tag, per that repo's own README).
 This is where you go when Section 3's five experiments are not enough --
 every package in this guide's tour has dozens of matching exercises
 there, phrased against the Java API. Translate mechanically: Java
@@ -878,7 +954,9 @@ exercise's expected answer does not match what this port returns, that
 is worth a bug report -- the whole point of the port contract is that
 divergence should not happen silently.
 
-**`COOKBOOK.md`** (the Java repo, 300 recipes). Short, task-oriented
+**`COOKBOOK.md`** (the Java repo, 300 recipes at the v1.17.0 tag; this
+repo's own `docs/COOKBOOK.md` has the Python versions of the most-used
+ones, each executed). Short, task-oriented
 "how do I..." entries -- "how do I bootstrap a curve from bond prices
 instead of par swaps," "how do I size a position with vol targeting,"
 that kind of thing. Read a recipe, then look up the equivalent Python
@@ -888,13 +966,14 @@ recipe's logic does not change, only the call syntax and the fact that
 you will likely get a NumPy array back where the Java version returns a
 primitive array.
 
-**`DIAGRAMS.md`** (the Java repo, 100 diagrams). Architecture and
-data-flow diagrams -- package dependency graphs, the backtester's event
-loop, the purged-K-fold train/test split geometry. These are
-language-agnostic by construction (they describe control flow and data
-shape, not syntax), so every diagram that does not involve `orderbook`/
-`trading` (Section 4's note applies) transfers to this port without
-translation.
+**`DIAGRAMS.md`** (the Java repo, 100 diagrams at the v1.17.0 tag).
+Architecture and data-flow diagrams -- package dependency graphs, the
+backtester's event loop, the purged-K-fold train/test split geometry.
+These are language-agnostic by construction (they describe control
+flow and data shape, not syntax), so every diagram that does not
+involve the threaded live layer (Section 4's note applies) transfers
+to this port without translation; this repo's `docs/ARCHITECTURE.md`
+carries the Python package-dependency diagram.
 
 **The formula appendix** (the Java repo README, ~175 entries). A flat
 lookup table of every closed-form formula in the library, with the

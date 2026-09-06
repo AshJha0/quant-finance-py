@@ -44,14 +44,27 @@ class YieldCurve:
 
     @staticmethod
     def of_zero_rates(tenor_years, zero_rates_cc) -> "YieldCurve":
-        """Curve from parallel arrays of tenors (years) and continuous zero rates."""
+        """Curve from parallel arrays of tenors (years) and continuous zero rates.
+
+        Tenors need not be sorted (the curve sorts them); a duplicate
+        tenor keeps the LAST rate, as ``TreeMap.put`` does in Java.
+
+        Raises:
+            ValueError: on empty/misaligned arrays, a non-positive or
+                non-finite tenor, or a non-finite rate (a NaN key would
+                break the sorted-bisect invariant silently).
+        """
         if len(tenor_years) != len(zero_rates_cc) or len(tenor_years) == 0:
             raise ValueError("need equal-length, non-empty tenor/rate arrays")
         zeros: dict[float, float] = {}
         for t, z in zip(tenor_years, zero_rates_cc):
-            if t <= 0:
-                raise ValueError(f"tenor must be positive: {t}")
-            zeros[float(t)] = float(z)
+            t = float(t)
+            z = float(z)
+            if not (t > 0) or t == math.inf:
+                raise ValueError(f"tenor must be positive and finite: {t}")
+            if not math.isfinite(z):
+                raise ValueError(f"zero rate must be finite at tenor {t}: {z}")
+            zeros[t] = z
         return YieldCurve(zeros)
 
     @staticmethod
@@ -59,10 +72,28 @@ class YieldCurve:
         """Classic bootstrap from par swap rates with an annual fixed leg at
         integer-year pillars (missing years are filled by linear interpolation
         of the par rates): ``DF_n = (1 - parRate_n * A_{n-1}) / (1 + parRate_n)``.
+
+        Raises:
+            ValueError: on empty/misaligned arrays; tenors that are not
+                strictly ascending whole years >= 1 (the annual-leg
+                bootstrap has no meaning for a 0.5y pillar, and an
+                unsorted input would silently interpolate the wrong par
+                rates); or a non-finite par rate.
         """
         n = len(tenor_years)
         if n != len(par_rates) or n == 0:
             raise ValueError("need equal-length, non-empty tenor/rate arrays")
+        tenor_years = [float(t) for t in tenor_years]
+        par_rates = [float(r) for r in par_rates]
+        prev = 0.0
+        for t, r in zip(tenor_years, par_rates):
+            if not math.isfinite(t) or t != math.floor(t) or t < 1:
+                raise ValueError(f"tenors must be whole years >= 1, got {t}")
+            if t <= prev:
+                raise ValueError(f"tenors must be strictly ascending, got {t} after {prev}")
+            prev = t
+            if not math.isfinite(r):
+                raise ValueError(f"par rate must be finite at tenor {t}: {r}")
         max_year = int(tenor_years[-1])
         # Interpolate par rates for every year 1..max_year.
         par = [0.0] * (max_year + 1)

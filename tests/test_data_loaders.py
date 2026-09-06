@@ -133,6 +133,19 @@ def test_csv_bar_loader_rows_sorted_by_time_even_if_unordered_in_file():
     assert list(series.timestamps()) == [1, 2, 3]
 
 
+def test_csv_bar_loader_duplicate_timestamp_raises():
+    # Review M7: the loader sorts but must not silently keep both rows —
+    # BarSeries would reject them anyway, but the loader names the file.
+    lines = [
+        "timestamp,open,high,low,close",
+        "1,1,1,1,1",
+        "2,2,2,2,2",
+        "2,3,3,3,3",
+    ]
+    with pytest.raises(ValueError, match="duplicate timestamp"):
+        cbl.parse(lines, "DUP")
+
+
 def test_csv_bar_loader_missing_required_column_raises():
     with pytest.raises(ValueError):
         cbl.parse(["timestamp,open,high,low", "1,1,1,1"], "BAD")

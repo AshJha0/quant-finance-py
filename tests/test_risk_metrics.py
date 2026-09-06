@@ -101,3 +101,62 @@ def test_beta_pin():
 def test_correlation_delegates():
     a = [1.0, 2.0, 3.0]
     assert rm.correlation(a, [2.0, 4.0, 6.0]) == pytest.approx(1.0, abs=1e-12)
+
+
+# ----------------------------------------------------------------------
+# NaN-poison contract (review C1): a NaN or an empty series must RAISE,
+# never report zero risk. Python's max(0.0, nan) is 0.0 — the gate has
+# to run before any clamp.
+# ----------------------------------------------------------------------
+
+_POISONED = [0.01, math.nan, -0.02]
+
+
+@pytest.mark.parametrize("fn", [
+    lambda r: rm.historical_var(r, 0.95),
+    lambda r: rm.parametric_var(r, 0.95),
+    lambda r: rm.conditional_var(r, 0.95),
+    lambda r: rm.expected_shortfall(r, 0.95),
+    lambda r: rm.max_drawdown(r),
+    lambda r: rm.sharpe_ratio(r, 0.0, 252),
+    lambda r: rm.sortino_ratio(r, 0.0, 252),
+    lambda r: rm.downside_deviation(r, 0.0),
+    lambda r: rm.volatility(r),
+], ids=["hist_var", "param_var", "cvar", "es", "mdd", "sharpe", "sortino",
+        "downside", "vol"])
+def test_nan_and_empty_series_raise_not_zero(fn):
+    with pytest.raises(ValueError):
+        fn(_POISONED)
+    with pytest.raises(ValueError):
+        fn([])
+    with pytest.raises(ValueError):
+        fn([0.01, math.inf, -0.02])
+
+
+def test_nan_in_return_series_used_to_report_zero_var():
+    # The exact failure mode the review reproduced: clean series 0.02 VaR,
+    # poisoned series 0.0 (or an understated 0.018 for historical).
+    clean = [0.01, -0.02, 0.03, -0.01]
+    assert rm.parametric_var(clean, 0.95) > 0
+    with pytest.raises(ValueError):
+        rm.parametric_var([0.01, -0.02, math.nan, 0.03, -0.01], 0.95)
+    with pytest.raises(ValueError):
+        rm.historical_var([0.01, -0.02, math.nan, 0.03, -0.01], 0.95)
+
+
+def test_confidence_outside_unit_interval_raises():
+    r = [0.01, -0.02, 0.03, -0.01]
+    for bad in (1.5, 1.0, 0.0, -0.1, math.nan):
+        with pytest.raises(ValueError):
+            rm.historical_var(r, bad)
+        with pytest.raises(ValueError):
+            rm.parametric_var(r, bad)
+        with pytest.raises(ValueError):
+            rm.conditional_var(r, bad)
+
+
+def test_beta_requires_aligned_finite_series():
+    with pytest.raises(ValueError):
+        rm.beta([0.01, 0.02], [0.01])
+    with pytest.raises(ValueError):
+        rm.beta([0.01, math.nan], [0.01, 0.02])
