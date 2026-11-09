@@ -1,7 +1,7 @@
 """Benchmark-fixing execution schedule, WMR-style (port of Java
 ``execution.WmrFixingScheduler``).
 
-Orders benchmarked to a fixing (the WM/Refinitiv 4pm London fix and its
+Orders benchmarked to a fixing (the WM/R 4pm London fix and its
 cousins) are executed by spreading the parent evenly across the
 fixing's calculation window, so realized cost tracks the benchmark
 rather than betting against it -- the window is 5 minutes for major

@@ -1,6 +1,6 @@
 """Regulatory / best-execution analytics (port of Java ``com.quantfinlib.regulatory``).
 
-MiFID II-style best execution reporting, WM/Reuters fix-window
+MiFID II-style best execution reporting, WM/R fix-window
 surveillance, and market-quality (spread / impact) indices.
 """
 
