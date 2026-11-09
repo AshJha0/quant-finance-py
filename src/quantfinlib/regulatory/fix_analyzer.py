@@ -1,4 +1,4 @@
-"""WM/Reuters-style 4pm fix analysis (port of Java ``regulatory.FixAnalyzer``).
+"""WM/R-style 4pm fix analysis (port of Java ``regulatory.FixAnalyzer``).
 
 Computes the fix rate from mid samples inside the fixing window
 (median, per WM/R methodology) and screens a participant's flow for
